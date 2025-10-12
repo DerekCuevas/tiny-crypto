@@ -1,0 +1,11 @@
+[package]
+name = "tiny-crypto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+base64 = "0.21"
+sha2 = "0.10.9"
+strum = "0.23"
+strum_macros = "0.23"
