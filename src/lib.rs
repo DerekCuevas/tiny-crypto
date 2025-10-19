@@ -1,2 +1,2 @@
-mod block;
-mod crypto;
+pub mod block;
+pub mod crypto;

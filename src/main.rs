@@ -38,7 +38,7 @@ fn hash_string(input: &str, format: ByteDisplay) {
     let hash = Sha256::digest(input.as_bytes());
 
     match format {
-        ByteDisplay::Hex => println!("Hash (hex): {:x}", hash),
+        ByteDisplay::Hex => println!("Hash (hex): {:#32x}", hash),
         ByteDisplay::Base64 => {
             let bytes = hash.to_vec();
             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
