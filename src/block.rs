@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
 
-use crate::crypto::sha256d;
+use crate::crypto::{Hash, sha256d};
 use anyhow::Result;
 use bincode::{Encode, encode_into_slice};
 use hex;
 
 #[derive(Debug, Clone, Encode)]
 pub struct BlockHeader {
-    previous_block_hash: [u8; 32],
-    merkle_root: [u8; 32],
+    previous_block_hash: Hash,
+    merkle_root: Hash,
     timestamp: u32,
     difficulty: u8,
     nonce: u32,
@@ -26,24 +26,24 @@ impl BlockHeader {
         Ok(bytes)
     }
 
-    pub fn hash(&self) -> Result<[u8; 32]> {
+    pub fn hash(&self) -> Result<Hash> {
         Ok(sha256d(&self.as_bytes()?))
     }
 
-    fn difficulty_target(&self) -> Result<[u8; 32]> {
+    fn difficulty_target(&self) -> Result<Hash> {
         if self.difficulty >= 32 {
             return Err(anyhow::anyhow!("Difficultly target is too high"));
         }
 
-        let mut target = [0u8; 32];
+        let mut target = Hash::default();
 
-        target[0] = 0xff;
+        target[0] = u8::MAX;
         target.rotate_right(self.difficulty as usize);
 
         Ok(target)
     }
 
-    fn target_met(&self, hash: &[u8; 32], target: &[u8; 32]) -> bool {
+    fn target_met(&self, hash: &Hash, target: &Hash) -> bool {
         matches!(hash.cmp(target), Ordering::Less | Ordering::Equal)
     }
 
@@ -57,7 +57,9 @@ impl BlockHeader {
 
             let hash = sha256d(&bytes);
 
-            println!("Nonce: {}, Hash: 0x{}", nonce, hex::encode(hash));
+            if nonce % 1_000_000 == 0 {
+                println!("Nonce: {}, Hash: 0x{}", nonce, hex::encode(hash));
+            }
 
             if self.target_met(&hash, &target) {
                 break;
@@ -75,6 +77,49 @@ impl BlockHeader {
 
         Ok(self.target_met(&hash, &target))
     }
+}
+
+#[derive(Debug, Clone, Encode)]
+pub struct TransactionId([u8; 32]);
+
+impl TransactionId {
+    pub fn empty() -> Self {
+        Self([0; 32])
+    }
+}
+
+#[derive(Debug, Clone, Encode)]
+pub struct TransactionOutputReference {
+    id: TransactionId,
+    index: u32,
+}
+
+impl TransactionOutputReference {
+    pub fn coinbase(&self) -> Self {
+        Self {
+            id: TransactionId::empty(),
+            index: u32::MAX,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode)]
+pub struct TransactionInput {
+    previous_output_reference: TransactionOutputReference,
+    sequence: u32,
+}
+
+#[derive(Debug, Clone, Encode)]
+pub struct TransactionOutput {
+    value: u64,
+}
+
+#[derive(Debug, Clone, Encode)]
+pub struct Transaction {
+    input_count: u32,
+    inputs: Vec<TransactionInput>,
+    output_count: u32,
+    outputs: Vec<TransactionOutput>,
 }
 
 pub struct Block {
@@ -130,7 +175,7 @@ mod tests {
             previous_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1760850297,
-            difficulty: 2,
+            difficulty: 3,
             nonce: 0,
         };
 
