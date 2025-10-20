@@ -123,6 +123,7 @@ pub struct Transaction {
 }
 
 pub struct Block {
+    #[allow(dead_code)]
     header: BlockHeader,
 }
 
