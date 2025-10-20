@@ -2,7 +2,7 @@ use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 use sha2::{Digest, Sha256};
 use strum_macros::Display;
-use tiny_crypto::crypto::generate_key_pair;
+use tiny_crypto::crypto::KeyPair;
 
 #[derive(Parser)]
 #[command(name = "tiny-crypto")]
@@ -57,7 +57,7 @@ fn main() {
             hash_string(&input, format);
         }
         Commands::GenerateKeyPair => {
-            let key_pair = generate_key_pair();
+            let key_pair = KeyPair::generate();
             println!("Public Key: 0x{}", key_pair.public_key);
             println!("Secret Key: 0x{}", key_pair.secret_key.display_secret());
         }
