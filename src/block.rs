@@ -138,7 +138,7 @@ mod tests {
             previous_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1760850297,
-            difficulty: 3,
+            difficulty: 1,
             nonce: 0,
         };
 
