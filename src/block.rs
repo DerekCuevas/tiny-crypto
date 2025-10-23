@@ -14,17 +14,17 @@ pub struct BlockHeader {
     merkle_root: Hash,
     timestamp: u32,
     difficulty: u8,
-    nonce: u32,
+    nonce: u64,
 }
 
 impl BlockHeader {
-    pub fn as_bytes(&self) -> Result<[u8; 73]> {
+    pub fn as_bytes(&self) -> Result<[u8; 77]> {
         let encode_config = bincode::config::standard()
             .with_little_endian()
             .with_fixed_int_encoding()
-            .with_limit::<73>();
+            .with_limit::<77>();
 
-        let mut bytes = [0u8; 73];
+        let mut bytes = [0u8; 77];
         encode_into_slice(self, &mut bytes, encode_config)?;
         Ok(bytes)
     }
@@ -50,13 +50,13 @@ impl BlockHeader {
         matches!(hash.cmp(target), Ordering::Less | Ordering::Equal)
     }
 
-    pub fn compute_nonce(&self) -> Result<u32> {
+    pub fn compute_nonce(&self) -> Result<u64> {
         let target = self.difficulty_target()?;
         let mut bytes = self.as_bytes()?;
-        let mut nonce = 0u32;
+        let mut nonce = 0u64;
 
         loop {
-            bytes[69..73].copy_from_slice(&nonce.to_le_bytes());
+            bytes[69..77].copy_from_slice(&nonce.to_le_bytes());
 
             let hash = sha256d(&bytes);
 
@@ -84,6 +84,7 @@ impl BlockHeader {
 
 #[derive(Debug, Clone)]
 pub struct Block {
+    pub sequence_number: u32,
     pub header: BlockHeader,
     pub transactions: Vec<Transaction>,
 }
