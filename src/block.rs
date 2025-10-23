@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 
-use crate::crypto::{Hash, sha256d};
+use crate::{
+    crypto::{Hash, sha256d},
+    transaction::Transaction,
+};
 use anyhow::Result;
 use bincode::{Encode, encode_into_slice};
 use hex;
@@ -79,52 +82,10 @@ impl BlockHeader {
     }
 }
 
-#[derive(Debug, Clone, Encode)]
-pub struct TransactionId([u8; 32]);
-
-impl TransactionId {
-    pub fn empty() -> Self {
-        Self([0; 32])
-    }
-}
-
-#[derive(Debug, Clone, Encode)]
-pub struct TransactionOutputReference {
-    id: TransactionId,
-    index: u32,
-}
-
-impl TransactionOutputReference {
-    pub fn coinbase(&self) -> Self {
-        Self {
-            id: TransactionId::empty(),
-            index: u32::MAX,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Encode)]
-pub struct TransactionInput {
-    previous_output_reference: TransactionOutputReference,
-    sequence: u32,
-}
-
-#[derive(Debug, Clone, Encode)]
-pub struct TransactionOutput {
-    value: u64,
-}
-
-#[derive(Debug, Clone, Encode)]
-pub struct Transaction {
-    input_count: u32,
-    inputs: Vec<TransactionInput>,
-    output_count: u32,
-    outputs: Vec<TransactionOutput>,
-}
-
+#[derive(Debug, Clone)]
 pub struct Block {
-    #[allow(dead_code)]
-    header: BlockHeader,
+    pub header: BlockHeader,
+    pub transactions: Vec<Transaction>,
 }
 
 #[cfg(test)]
