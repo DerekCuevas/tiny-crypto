@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use bincode::Encode;
 use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
 
 use crate::crypto::{Hash, sha256d, sign_message, verify_signature};
 
-#[derive(Debug, Clone, Encode)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
 pub struct TxId(pub Hash);
 
 impl TxId {
@@ -19,10 +21,16 @@ pub struct TransactionOutput {
     pub address: String,
 }
 
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
+pub struct TransactionOutputReference {
+    pub id: TxId,
+    pub index: usize,
+}
+
 #[derive(Debug, Clone, Encode)]
 pub enum TransactionInput {
     Coinbase,
-    TransactionOutputReference { id: TxId, index: u32 },
+    Reference(TransactionOutputReference),
 }
 
 #[derive(Debug, Clone, Encode)]
@@ -77,6 +85,35 @@ impl Transaction {
             public_key,
         ))
     }
+
+    pub fn output_reference(&self, index: usize) -> TransactionOutputReference {
+        TransactionOutputReference {
+            id: self.id.clone(),
+            index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UnspentTransactionOutput {
+    pub output: HashSet<TransactionOutputReference>,
+}
+
+impl UnspentTransactionOutput {
+    pub fn update(&mut self, transaction: &Transaction) {
+        let TransactionBody { input, outputs } = &transaction.body;
+
+        if let TransactionInput::Reference(reference) = input {
+            self.output.remove(&reference);
+        }
+
+        for (index, _output) in outputs.iter().enumerate() {
+            self.output.insert(TransactionOutputReference {
+                id: transaction.id.clone(),
+                index,
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -87,12 +124,13 @@ mod tests {
     #[test]
     fn test_transaction() {
         let keypair_bob = KeyPair::generate();
+        let address_bob = address(&keypair_bob.public_key);
 
         let tx_a_body = TransactionBody {
             input: TransactionInput::Coinbase,
             outputs: vec![TransactionOutput {
                 value: 100,
-                address: address(&keypair_bob.public_key),
+                address: address_bob.clone(),
             }],
         };
 
@@ -102,26 +140,33 @@ mod tests {
         assert!(is_valid);
 
         let keypair_alice = KeyPair::generate();
+        let address_alice = address(&keypair_alice.public_key);
 
         let tx_b_body = TransactionBody {
-            input: TransactionInput::TransactionOutputReference {
-                id: tx_a.id,
-                index: 0,
-            },
+            input: TransactionInput::Reference(tx_a.output_reference(0)),
             outputs: vec![
                 TransactionOutput {
                     value: 50,
-                    address: address(&keypair_alice.public_key),
+                    address: address_alice,
                 },
                 TransactionOutput {
                     value: 50,
-                    address: address(&keypair_bob.public_key),
+                    address: address_bob,
                 },
             ],
         };
 
         let tx_b = tx_b_body.into_tx(&keypair_bob.secret_key).unwrap();
 
-        dbg!(&tx_b);
+        let mut unspent_outputs = UnspentTransactionOutput::default();
+        unspent_outputs.update(&tx_a);
+
+        assert!(unspent_outputs.output.contains(&tx_a.output_reference(0)));
+
+        unspent_outputs.update(&tx_b);
+
+        assert!(!unspent_outputs.output.contains(&tx_a.output_reference(0)));
+        assert!(unspent_outputs.output.contains(&tx_b.output_reference(0)));
+        assert!(unspent_outputs.output.contains(&tx_b.output_reference(1)));
     }
 }
