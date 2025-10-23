@@ -1,10 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use bincode::Encode;
 use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
 
-use crate::crypto::{Hash, sha256d, sign_message, verify_signature};
+use crate::crypto::{Hash, address, sha256d, sign_message, verify_signature};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
 pub struct TxId(pub Hash);
@@ -61,13 +61,6 @@ impl TransactionBody {
             body: self,
         })
     }
-
-    pub fn validate(&self) -> Result<bool> {
-        // UTXO validation (no double spends)
-        // Input validation (creator is the owner of the previous output - address matches public key)
-        // Output (amount) validation
-        todo!()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -86,11 +79,15 @@ impl Transaction {
         ))
     }
 
-    pub fn output_reference(&self, index: usize) -> TransactionOutputReference {
-        TransactionOutputReference {
+    pub fn output_reference(&self, index: usize) -> Result<TransactionOutputReference> {
+        if index >= self.body.outputs.len() {
+            return Err(anyhow::anyhow!("Transaction output index out of bounds"));
+        }
+
+        Ok(TransactionOutputReference {
             id: self.id.clone(),
             index,
-        }
+        })
     }
 }
 
@@ -100,19 +97,87 @@ pub struct UnspentTransactionOutput {
 }
 
 impl UnspentTransactionOutput {
-    pub fn update(&mut self, transaction: &Transaction) {
+    pub fn update(&mut self, transaction: &Transaction) -> Result<()> {
         let TransactionBody { input, outputs } = &transaction.body;
 
         if let TransactionInput::Reference(reference) = input {
-            self.output.remove(&reference);
+            let removed = self.output.remove(&reference);
+            if !removed {
+                return Err(anyhow::anyhow!("Transaction output reference not found"));
+            }
         }
 
-        for (index, _output) in outputs.iter().enumerate() {
-            self.output.insert(TransactionOutputReference {
-                id: transaction.id.clone(),
-                index,
-            });
+        let new_unspent_outputs = outputs
+            .iter()
+            .enumerate()
+            .map(|(index, _o)| transaction.output_reference(index))
+            .collect::<Result<Vec<_>>>()?;
+
+        for output in new_unspent_outputs {
+            self.output.insert(output);
         }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TransactionState {
+    pub transactions: HashMap<TxId, Transaction>,
+    pub unspent_output_set: UnspentTransactionOutput,
+}
+
+impl TransactionState {
+    pub fn add_transaction(
+        &mut self,
+        public_key: &PublicKey,
+        transaction: Transaction,
+    ) -> Result<()> {
+        self.validate_transaction(public_key, &transaction)?;
+
+        self.unspent_output_set.update(&transaction)?;
+
+        self.transactions
+            .insert(transaction.id.clone(), transaction);
+
+        Ok(())
+    }
+
+    pub fn validate_transaction(
+        &self,
+        public_key: &PublicKey,
+        transaction: &Transaction,
+    ) -> Result<()> {
+        transaction.verify(public_key)?;
+
+        let TransactionBody { input, outputs } = &transaction.body;
+
+        if let TransactionInput::Reference(reference) = input {
+            let Some(tx) = self.transactions.get(&reference.id) else {
+                return Err(anyhow::anyhow!("Transaction output reference not found"));
+            };
+
+            let Some(output_ref) = self.unspent_output_set.output.get(&reference) else {
+                return Err(anyhow::anyhow!("Transaction output already spent"));
+            };
+
+            let Some(output) = tx.body.outputs.get(output_ref.index) else {
+                return Err(anyhow::anyhow!("Transaction output index not found"));
+            };
+
+            if output.address != address(&public_key) {
+                return Err(anyhow::anyhow!(
+                    "Transaction output address does not match public key"
+                ));
+            }
+
+            let tx_output_value = outputs.iter().map(|o| o.value).sum::<u64>();
+            if tx_output_value != output.value {
+                return Err(anyhow::anyhow!("Transaction output value does not match"));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -123,6 +188,8 @@ mod tests {
 
     #[test]
     fn test_transaction() {
+        let mut state = TransactionState::default();
+
         let keypair_bob = KeyPair::generate();
         let address_bob = address(&keypair_bob.public_key);
 
@@ -136,14 +203,22 @@ mod tests {
 
         let tx_a = tx_a_body.into_tx(&keypair_bob.secret_key).unwrap();
 
-        let is_valid = tx_a.verify(&keypair_bob.public_key).unwrap();
-        assert!(is_valid);
+        state
+            .add_transaction(&keypair_bob.public_key, tx_a.clone())
+            .unwrap();
+
+        assert!(
+            state
+                .unspent_output_set
+                .output
+                .contains(&tx_a.output_reference(0).unwrap())
+        );
 
         let keypair_alice = KeyPair::generate();
         let address_alice = address(&keypair_alice.public_key);
 
         let tx_b_body = TransactionBody {
-            input: TransactionInput::Reference(tx_a.output_reference(0)),
+            input: TransactionInput::Reference(tx_a.output_reference(0).unwrap()),
             outputs: vec![
                 TransactionOutput {
                     value: 50,
@@ -158,15 +233,29 @@ mod tests {
 
         let tx_b = tx_b_body.into_tx(&keypair_bob.secret_key).unwrap();
 
-        let mut unspent_outputs = UnspentTransactionOutput::default();
-        unspent_outputs.update(&tx_a);
+        state
+            .add_transaction(&keypair_bob.public_key, tx_b.clone())
+            .unwrap();
 
-        assert!(unspent_outputs.output.contains(&tx_a.output_reference(0)));
+        assert!(
+            !state
+                .unspent_output_set
+                .output
+                .contains(&tx_a.output_reference(0).unwrap())
+        );
 
-        unspent_outputs.update(&tx_b);
+        assert!(
+            state
+                .unspent_output_set
+                .output
+                .contains(&tx_b.output_reference(0).unwrap())
+        );
 
-        assert!(!unspent_outputs.output.contains(&tx_a.output_reference(0)));
-        assert!(unspent_outputs.output.contains(&tx_b.output_reference(0)));
-        assert!(unspent_outputs.output.contains(&tx_b.output_reference(1)));
+        assert!(
+            state
+                .unspent_output_set
+                .output
+                .contains(&tx_b.output_reference(1).unwrap())
+        );
     }
 }
