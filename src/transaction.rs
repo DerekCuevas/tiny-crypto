@@ -2,9 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use bincode::Encode;
+use rs_merkle::MerkleTree;
 use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
 
-use crate::crypto::{Hash, address, sha256d, sign_message, verify_signature};
+use crate::crypto::{
+    Hash, KeyPair, Sha256dHasher, address, merkle_tree, sha256d, sign_message, verify_signature,
+};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
 pub struct TxId(pub Hash);
@@ -88,6 +91,18 @@ impl Transaction {
             id: self.id.clone(),
             index,
         })
+    }
+
+    pub fn new_coinbase(keypair: &KeyPair, block_height: u32, reward: u64) -> Result<Self> {
+        let body = TransactionBody {
+            input: TransactionInput::Coinbase { block_height },
+            outputs: vec![TransactionOutput {
+                value: reward,
+                address: address(&keypair.public_key),
+            }],
+        };
+
+        body.into_tx(&keypair.secret_key)
     }
 }
 
@@ -179,6 +194,11 @@ impl TransactionState {
 
         Ok(())
     }
+}
+
+pub fn build_merkle_tree(transactions: &Vec<Transaction>) -> Result<MerkleTree<Sha256dHasher>> {
+    let leaves = transactions.iter().map(|tx| tx.id.0.as_slice()).collect();
+    Ok(merkle_tree(leaves))
 }
 
 #[cfg(test)]

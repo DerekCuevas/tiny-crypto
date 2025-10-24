@@ -1,0 +1,2 @@
+pub const GENESIS_BLOCK_REWARD: u32 = 50;
+pub const BLOCKS_PER_REWARD_HALVING: u32 = 210_000;

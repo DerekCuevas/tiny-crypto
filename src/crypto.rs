@@ -1,4 +1,5 @@
 use ripemd::Ripemd160;
+use rs_merkle::MerkleTree;
 use secp256k1::ecdsa::Signature;
 use secp256k1::{Message, Secp256k1};
 use secp256k1::{PublicKey, SecretKey, rand};
@@ -59,6 +60,21 @@ pub fn address(public_key: &PublicKey) -> String {
     bs58::encode(address_bytes).into_string()
 }
 
+#[derive(Clone)]
+pub struct Sha256dHasher {}
+
+impl rs_merkle::Hasher for Sha256dHasher {
+    type Hash = [u8; 32];
+    fn hash(data: &[u8]) -> Self::Hash {
+        sha256d(data).into()
+    }
+}
+
+pub fn merkle_tree(leaf_bytes: Vec<&[u8]>) -> MerkleTree<Sha256dHasher> {
+    let leaves: Vec<[u8; 32]> = leaf_bytes.iter().map(|x| sha256d(x)).collect();
+    MerkleTree::<Sha256dHasher>::from_leaves(&leaves)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +102,20 @@ mod tests {
 
         let pk_address = address(&pk);
         assert_eq!(pk_address, "1KYYpnPHa2fpyfrGmug6pprexoJU74ihwW");
+    }
+
+    #[test]
+    fn test_merkle_tree() {
+        let leaves = vec![b"Hello, world!".as_slice(), b"Hello, world!".as_slice()];
+        let tree = merkle_tree(leaves);
+
+        let root = tree.root().unwrap();
+        println!("Root: 0x{}", hex::encode(root));
+
+        assert_eq!(
+            root.to_vec(),
+            hex::decode("9d6bf165d3b3552fcf9c4bd1fee36db5aca38d992a6aff5178c7aac79c6d715d")
+                .unwrap()
+        );
     }
 }
