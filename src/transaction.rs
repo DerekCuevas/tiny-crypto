@@ -29,7 +29,7 @@ pub struct TransactionOutputReference {
 
 #[derive(Debug, Clone, Encode)]
 pub enum TransactionInput {
-    Coinbase,
+    Coinbase { block_height: u32 },
     Reference(TransactionOutputReference),
 }
 
@@ -194,7 +194,7 @@ mod tests {
         let address_bob = address(&keypair_bob.public_key);
 
         let tx_a_body = TransactionBody {
-            input: TransactionInput::Coinbase,
+            input: TransactionInput::Coinbase { block_height: 0 },
             outputs: vec![TransactionOutput {
                 value: 100,
                 address: address_bob.clone(),

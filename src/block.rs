@@ -84,9 +84,31 @@ impl BlockHeader {
 
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub sequence_number: u32,
+    pub height: u32,
     pub header: BlockHeader,
     pub transactions: Vec<Transaction>,
+}
+
+impl Block {
+    pub fn new(previous: &Block, transactions: Vec<Transaction>) -> Result<Self> {
+        // TODO: Add block reward coinbase transaction (must be first)
+        // compute merkle root
+        // mine block
+
+        let header = BlockHeader {
+            previous_block_hash: previous.header.hash()?,
+            merkle_root: [0; 32],
+            timestamp: chrono::Utc::now().timestamp() as u32,
+            difficulty: previous.header.difficulty,
+            nonce: 0,
+        };
+
+        Ok(Self {
+            height: previous.height + 1,
+            header,
+            transactions,
+        })
+    }
 }
 
 #[cfg(test)]
