@@ -50,28 +50,27 @@ impl BlockHeader {
         matches!(hash.cmp(target), Ordering::Less | Ordering::Equal)
     }
 
-    pub fn compute_nonce(&self) -> Result<u64> {
+    pub fn compute_nonce_naive(&self) -> Result<u64> {
         let target = self.difficulty_target()?;
-        let mut bytes = self.as_bytes()?;
-        let mut nonce = 0u64;
+
+        let mut header = self.clone();
+        header.nonce = 0;
 
         loop {
-            bytes[69..77].copy_from_slice(&nonce.to_le_bytes());
-
-            let hash = sha256d(&bytes);
+            let hash = header.hash()?;
 
             if self.target_met(&hash, &target) {
                 break;
             }
 
-            nonce += 1;
+            header.nonce += 1;
 
-            if nonce % 1_000_000 == 0 {
-                println!("Nonce: {}, Hash: 0x{}", nonce, hex::encode(hash));
+            if header.nonce % 1_000_000 == 0 {
+                println!("Nonce: {}, Hash: 0x{}", header.nonce, hex::encode(hash));
             }
         }
 
-        Ok(nonce)
+        Ok(header.nonce)
     }
 
     pub fn validate_hash(&self) -> Result<bool> {
@@ -122,7 +121,7 @@ impl Block {
     }
 
     pub fn mine(&mut self) -> Result<()> {
-        self.header.nonce = self.header.compute_nonce()?;
+        self.header.nonce = self.header.compute_nonce_naive()?;
         Ok(())
     }
 }
@@ -182,7 +181,7 @@ mod tests {
             nonce: 0,
         };
 
-        let nonce = header.compute_nonce().unwrap();
+        let nonce = header.compute_nonce_naive().unwrap();
         println!("Found Nonce: {}", nonce);
         header.nonce = nonce;
 
