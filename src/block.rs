@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use crate::{
-    constants::{BLOCKS_PER_REWARD_HALVING, GENESIS_BLOCK_REWARD},
     crypto::{Hash, KeyPair, sha256d},
     transaction::{Transaction, build_merkle_tree},
 };
@@ -90,10 +89,6 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
 }
 
-fn block_reward(height: u32) -> u32 {
-    GENESIS_BLOCK_REWARD / 2u32.pow(height / BLOCKS_PER_REWARD_HALVING)
-}
-
 impl Block {
     pub fn new(
         keypair: &KeyPair,
@@ -101,8 +96,7 @@ impl Block {
         input_transactions: Vec<Transaction>,
     ) -> Result<Self> {
         let height = previous.height + 1;
-        let reward = block_reward(height) as u64;
-        let coinbase_tx = Transaction::new_coinbase(keypair, height, reward)?;
+        let coinbase_tx = Transaction::new_coinbase(keypair, height)?;
 
         let mut transactions = vec![coinbase_tx];
         transactions.extend(input_transactions);
@@ -203,8 +197,7 @@ mod tests {
     fn test_build_block() {
         let keypair_bob = KeyPair::generate();
 
-        let genesis_tx =
-            Transaction::new_coinbase(&keypair_bob, 0, GENESIS_BLOCK_REWARD as u64).unwrap();
+        let genesis_tx = Transaction::new_coinbase(&keypair_bob, 0).unwrap();
 
         let mut genesis_block = Block {
             height: 0,

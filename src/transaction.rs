@@ -5,8 +5,11 @@ use bincode::Encode;
 use rs_merkle::MerkleTree;
 use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
 
-use crate::crypto::{
-    Hash, KeyPair, Sha256dHasher, address, merkle_tree, sha256d, sign_message, verify_signature,
+use crate::{
+    constants::{BLOCKS_PER_REWARD_HALVING, GENESIS_BLOCK_REWARD},
+    crypto::{
+        Hash, KeyPair, Sha256dHasher, address, merkle_tree, sha256d, sign_message, verify_signature,
+    },
 };
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
@@ -95,11 +98,17 @@ impl Transaction {
         })
     }
 
-    pub fn new_coinbase(keypair: &KeyPair, block_height: u32, reward: u64) -> Result<Self> {
+    fn block_reward(height: u32) -> u64 {
+        GENESIS_BLOCK_REWARD as u64 / 2u32.pow(height / BLOCKS_PER_REWARD_HALVING) as u64
+    }
+
+    pub fn new_coinbase(keypair: &KeyPair, block_height: u32) -> Result<Self> {
+        let value = Self::block_reward(block_height);
+
         let body = TransactionBody {
             input: TransactionInput::Coinbase { block_height },
             outputs: vec![TransactionOutput {
-                value: reward,
+                value,
                 address: address(&keypair.public_key),
             }],
         };
