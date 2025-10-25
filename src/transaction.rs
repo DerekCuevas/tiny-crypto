@@ -57,10 +57,11 @@ impl TransactionBody {
         Ok(sign_message(&self.as_bytes()?, secret_key))
     }
 
-    pub fn into_tx(self, secret_key: &SecretKey) -> Result<Transaction> {
+    pub fn into_tx(self, keypair: &KeyPair) -> Result<Transaction> {
         Ok(Transaction {
             id: self.id()?,
-            signature: self.sign(secret_key)?,
+            public_key: keypair.public_key,
+            signature: self.sign(&keypair.secret_key)?,
             body: self,
         })
     }
@@ -70,15 +71,16 @@ impl TransactionBody {
 pub struct Transaction {
     pub id: TxId,
     pub body: TransactionBody,
+    pub public_key: PublicKey,
     pub signature: Signature,
 }
 
 impl Transaction {
-    pub fn verify(&self, public_key: &PublicKey) -> Result<bool> {
+    pub fn verify(&self) -> Result<bool> {
         Ok(verify_signature(
             &self.body.as_bytes()?,
             &self.signature,
-            public_key,
+            &self.public_key,
         ))
     }
 
@@ -102,7 +104,7 @@ impl Transaction {
             }],
         };
 
-        body.into_tx(&keypair.secret_key)
+        body.into_tx(&keypair)
     }
 }
 
@@ -143,12 +145,8 @@ pub struct TransactionState {
 }
 
 impl TransactionState {
-    pub fn add_transaction(
-        &mut self,
-        public_key: &PublicKey,
-        transaction: Transaction,
-    ) -> Result<()> {
-        self.validate_transaction(public_key, &transaction)?;
+    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        self.validate_transaction(&transaction)?;
 
         self.unspent_output_set.update(&transaction)?;
 
@@ -158,12 +156,8 @@ impl TransactionState {
         Ok(())
     }
 
-    pub fn validate_transaction(
-        &self,
-        public_key: &PublicKey,
-        transaction: &Transaction,
-    ) -> Result<()> {
-        transaction.verify(public_key)?;
+    pub fn validate_transaction(&self, transaction: &Transaction) -> Result<()> {
+        transaction.verify()?;
 
         let TransactionBody { input, outputs } = &transaction.body;
 
@@ -180,7 +174,7 @@ impl TransactionState {
                 return Err(anyhow::anyhow!("Transaction output index not found"));
             };
 
-            if output.address != address(&public_key) {
+            if output.address != address(&tx.public_key) {
                 return Err(anyhow::anyhow!(
                     "Transaction output address does not match public key"
                 ));
@@ -221,11 +215,9 @@ mod tests {
             }],
         };
 
-        let tx_a = tx_a_body.into_tx(&keypair_bob.secret_key).unwrap();
+        let tx_a = tx_a_body.into_tx(&keypair_bob).unwrap();
 
-        state
-            .add_transaction(&keypair_bob.public_key, tx_a.clone())
-            .unwrap();
+        state.add_transaction(tx_a.clone()).unwrap();
 
         assert!(
             state
@@ -251,11 +243,9 @@ mod tests {
             ],
         };
 
-        let tx_b = tx_b_body.into_tx(&keypair_bob.secret_key).unwrap();
+        let tx_b = tx_b_body.into_tx(&keypair_bob).unwrap();
 
-        state
-            .add_transaction(&keypair_bob.public_key, tx_b.clone())
-            .unwrap();
+        state.add_transaction(tx_b.clone()).unwrap();
 
         assert!(
             !state

@@ -231,7 +231,7 @@ mod tests {
             }],
         };
 
-        let tx_a = tx_a_body.into_tx(&keypair_bob.secret_key).unwrap();
+        let tx_a = tx_a_body.into_tx(&keypair_bob).unwrap();
 
         let mut block = Block::new(&keypair_bob, &genesis_block, vec![tx_a.clone()]).unwrap();
 
