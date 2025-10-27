@@ -1,3 +1,4 @@
+use bincode::Encode;
 use ripemd::Ripemd160;
 use rs_merkle::MerkleTree;
 use secp256k1::ecdsa::Signature;
@@ -44,20 +45,25 @@ pub fn verify_signature(message: &[u8], signature: &Signature, public_key: &Publ
     secp.verify_ecdsa(message, &signature, &public_key).is_ok()
 }
 
-pub fn address(public_key: &PublicKey) -> String {
-    let hash_1 = Sha256::digest(public_key.serialize_uncompressed());
+#[derive(Debug, Clone, Encode, Eq, PartialEq)]
+pub struct Address(String);
 
-    let mut ripemd_hasher = Ripemd160::new();
-    ripemd_hasher.update(hash_1);
-    let hash_2 = ripemd_hasher.finalize();
+impl Address {
+    pub fn from_public_key(public_key: &PublicKey) -> Self {
+        let hash_1 = Sha256::digest(public_key.serialize_uncompressed());
 
-    let version_byte = 0u8.to_le_bytes();
-    let version_and_hash = [version_byte.to_vec(), hash_2.to_vec()].concat();
+        let mut ripemd_hasher = Ripemd160::new();
+        ripemd_hasher.update(hash_1);
+        let hash_2 = ripemd_hasher.finalize();
 
-    let checksum = &sha256d(&version_and_hash)[..4];
-    let address_bytes = [version_byte.to_vec(), hash_2.to_vec(), checksum.to_vec()].concat();
+        let version_byte = 0u8.to_le_bytes();
+        let version_and_hash = [version_byte.to_vec(), hash_2.to_vec()].concat();
 
-    bs58::encode(address_bytes).into_string()
+        let checksum = &sha256d(&version_and_hash)[..4];
+        let address_bytes = [version_byte.to_vec(), hash_2.to_vec(), checksum.to_vec()].concat();
+
+        Address(bs58::encode(address_bytes).into_string())
+    }
 }
 
 #[derive(Clone)]
@@ -100,8 +106,8 @@ mod tests {
         let pk_str = "035fe61fefdd77e3f8065c57ce7750d4b4aa7bc881ebb8875d1a211c28d08ca111";
         let pk = PublicKey::from_str(pk_str).unwrap();
 
-        let pk_address = address(&pk);
-        assert_eq!(pk_address, "1KYYpnPHa2fpyfrGmug6pprexoJU74ihwW");
+        let pk_address = Address::from_public_key(&pk);
+        assert_eq!(pk_address.0, "1KYYpnPHa2fpyfrGmug6pprexoJU74ihwW");
     }
 
     #[test]

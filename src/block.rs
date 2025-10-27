@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     crypto::{Hash, KeyPair, sha256d},
-    transaction::{Transaction, build_merkle_tree},
+    transaction::Transaction,
 };
 use anyhow::Result;
 use bincode::{Encode, encode_into_slice};
@@ -100,7 +100,7 @@ impl Block {
         let mut transactions = vec![coinbase_tx];
         transactions.extend(input_transactions);
 
-        let merkle_tree = build_merkle_tree(&transactions)?;
+        let merkle_tree = Transaction::build_merkle_tree(&transactions)?;
         let merkle_root = merkle_tree
             .root()
             .ok_or(anyhow::anyhow!("Failed to compute merkle root"))?;
@@ -213,7 +213,7 @@ mod tests {
         );
 
         let keypair_alice = KeyPair::generate();
-        let address_alice = address(&keypair_alice.public_key);
+        let address_alice = Address::from_public_key(&keypair_alice.public_key);
 
         let tx_a_body = TransactionBody {
             input: TransactionInput::Reference(genesis_tx.output_reference(0).unwrap()),

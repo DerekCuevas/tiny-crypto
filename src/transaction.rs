@@ -8,7 +8,7 @@ use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
 use crate::{
     constants::{BLOCKS_PER_REWARD_HALVING, GENESIS_BLOCK_REWARD},
     crypto::{
-        Hash, KeyPair, Sha256dHasher, address, merkle_tree, sha256d, sign_message, verify_signature,
+        Address, Hash, KeyPair, Sha256dHasher, merkle_tree, sha256d, sign_message, verify_signature,
     },
 };
 
@@ -24,7 +24,7 @@ impl TxId {
 #[derive(Debug, Clone, Encode)]
 pub struct TransactionOutput {
     pub value: u64,
-    pub address: String,
+    pub address: Address,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
@@ -62,7 +62,6 @@ impl TransactionBody {
 
     pub fn into_tx(self, keypair: &KeyPair) -> Result<Transaction> {
         Ok(Transaction {
-            id: self.id()?,
             public_key: keypair.public_key,
             signature: self.sign(&keypair.secret_key)?,
             body: self,
@@ -72,13 +71,16 @@ impl TransactionBody {
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
-    pub id: TxId,
     pub body: TransactionBody,
     pub public_key: PublicKey,
     pub signature: Signature,
 }
 
 impl Transaction {
+    pub fn id(&self) -> Result<TxId> {
+        self.body.id()
+    }
+
     pub fn verify(&self) -> Result<bool> {
         Ok(verify_signature(
             &self.body.as_bytes()?,
@@ -93,7 +95,7 @@ impl Transaction {
         }
 
         Ok(TransactionOutputReference {
-            id: self.id.clone(),
+            id: self.id()?,
             index,
         })
     }
@@ -109,25 +111,36 @@ impl Transaction {
             input: TransactionInput::Coinbase { block_height },
             outputs: vec![TransactionOutput {
                 value,
-                address: address(&keypair.public_key),
+                address: Address::from_public_key(&keypair.public_key),
             }],
         };
 
         body.into_tx(&keypair)
     }
+
+    pub fn build_merkle_tree(transactions: &Vec<Self>) -> Result<MerkleTree<Sha256dHasher>> {
+        let tx_ids = transactions
+            .iter()
+            .map(|tx| tx.id())
+            .collect::<Result<Vec<_>>>()?;
+
+        let leaves = tx_ids.iter().map(|id| id.0.as_slice()).collect();
+
+        Ok(merkle_tree(leaves))
+    }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct UnspentTransactionOutput {
-    pub output: HashSet<TransactionOutputReference>,
+pub struct UTXOSet {
+    pub outputs: HashSet<TransactionOutputReference>,
 }
 
-impl UnspentTransactionOutput {
+impl UTXOSet {
     pub fn update(&mut self, transaction: &Transaction) -> Result<()> {
         let TransactionBody { input, outputs } = &transaction.body;
 
         if let TransactionInput::Reference(reference) = input {
-            let removed = self.output.remove(&reference);
+            let removed = self.outputs.remove(&reference);
             if !removed {
                 return Err(anyhow::anyhow!("Transaction output reference not found"));
             }
@@ -140,7 +153,7 @@ impl UnspentTransactionOutput {
             .collect::<Result<Vec<_>>>()?;
 
         for output in new_unspent_outputs {
-            self.output.insert(output);
+            self.outputs.insert(output);
         }
 
         Ok(())
@@ -150,17 +163,17 @@ impl UnspentTransactionOutput {
 #[derive(Debug, Clone, Default)]
 pub struct TransactionState {
     pub transactions: HashMap<TxId, Transaction>,
-    pub unspent_output_set: UnspentTransactionOutput,
+    pub uxto_set: UTXOSet,
 }
 
 impl TransactionState {
     pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        let id = transaction.id()?;
+
         self.validate_transaction(&transaction)?;
 
-        self.unspent_output_set.update(&transaction)?;
-
-        self.transactions
-            .insert(transaction.id.clone(), transaction);
+        self.uxto_set.update(&transaction)?;
+        self.transactions.insert(id, transaction);
 
         Ok(())
     }
@@ -175,7 +188,7 @@ impl TransactionState {
                 return Err(anyhow::anyhow!("Transaction output reference not found"));
             };
 
-            let Some(output_ref) = self.unspent_output_set.output.get(&reference) else {
+            let Some(output_ref) = self.uxto_set.outputs.get(&reference) else {
                 return Err(anyhow::anyhow!("Transaction output already spent"));
             };
 
@@ -183,7 +196,7 @@ impl TransactionState {
                 return Err(anyhow::anyhow!("Transaction output index not found"));
             };
 
-            if output.address != address(&tx.public_key) {
+            if output.address != Address::from_public_key(&tx.public_key) {
                 return Err(anyhow::anyhow!(
                     "Transaction output address does not match public key"
                 ));
@@ -199,22 +212,17 @@ impl TransactionState {
     }
 }
 
-pub fn build_merkle_tree(transactions: &Vec<Transaction>) -> Result<MerkleTree<Sha256dHasher>> {
-    let leaves = transactions.iter().map(|tx| tx.id.0.as_slice()).collect();
-    Ok(merkle_tree(leaves))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{KeyPair, address};
+    use crate::crypto::*;
 
     #[test]
     fn test_transaction() {
         let mut state = TransactionState::default();
 
         let keypair_bob = KeyPair::generate();
-        let address_bob = address(&keypair_bob.public_key);
+        let address_bob = Address::from_public_key(&keypair_bob.public_key);
 
         let tx_a_body = TransactionBody {
             input: TransactionInput::Coinbase { block_height: 0 },
@@ -230,13 +238,13 @@ mod tests {
 
         assert!(
             state
-                .unspent_output_set
-                .output
+                .uxto_set
+                .outputs
                 .contains(&tx_a.output_reference(0).unwrap())
         );
 
         let keypair_alice = KeyPair::generate();
-        let address_alice = address(&keypair_alice.public_key);
+        let address_alice = Address::from_public_key(&keypair_alice.public_key);
 
         let tx_b_body = TransactionBody {
             input: TransactionInput::Reference(tx_a.output_reference(0).unwrap()),
@@ -258,22 +266,22 @@ mod tests {
 
         assert!(
             !state
-                .unspent_output_set
-                .output
+                .uxto_set
+                .outputs
                 .contains(&tx_a.output_reference(0).unwrap())
         );
 
         assert!(
             state
-                .unspent_output_set
-                .output
+                .uxto_set
+                .outputs
                 .contains(&tx_b.output_reference(0).unwrap())
         );
 
         assert!(
             state
-                .unspent_output_set
-                .output
+                .uxto_set
+                .outputs
                 .contains(&tx_b.output_reference(1).unwrap())
         );
     }
