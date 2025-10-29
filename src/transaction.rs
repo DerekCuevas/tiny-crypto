@@ -47,13 +47,11 @@ pub struct TransactionBody {
 
 impl TransactionBody {
     pub fn as_bytes(&self) -> Result<Vec<u8>> {
-        let bytes = bincode::encode_to_vec(self, bincode::config::standard())?;
-        Ok(bytes)
+        Ok(bincode::encode_to_vec(self, bincode::config::standard())?)
     }
 
     pub fn id(&self) -> Result<TxId> {
-        let hash = sha256d(&self.as_bytes()?);
-        Ok(TxId(hash))
+        Ok(TxId(sha256d(&self.as_bytes()?)))
     }
 
     pub fn sign(&self, secret_key: &SecretKey) -> Result<Signature> {

@@ -1,32 +1,26 @@
 use std::cmp::Ordering;
 
+use anyhow::Result;
+use bincode::Encode;
+use hex;
+
 use crate::{
     crypto::{Hash, KeyPair, sha256d},
     transaction::Transaction,
 };
-use anyhow::Result;
-use bincode::{Encode, encode_into_slice};
-use hex;
 
 #[derive(Debug, Clone, Encode, Default)]
 pub struct BlockHeader {
-    previous_block_hash: Hash,
-    merkle_root: Hash,
-    timestamp: u32,
-    difficulty: u8,
-    nonce: u64,
+    pub previous_block_hash: Hash,
+    pub merkle_root: Hash,
+    pub timestamp: u32,
+    pub difficulty: u8,
+    pub nonce: u64,
 }
 
 impl BlockHeader {
-    pub fn as_bytes(&self) -> Result<[u8; 77]> {
-        let encode_config = bincode::config::standard()
-            .with_little_endian()
-            .with_fixed_int_encoding()
-            .with_limit::<77>();
-
-        let mut bytes = [0u8; 77];
-        encode_into_slice(self, &mut bytes, encode_config)?;
-        Ok(bytes)
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+        Ok(bincode::encode_to_vec(self, bincode::config::standard())?)
     }
 
     pub fn hash(&self) -> Result<Hash> {
