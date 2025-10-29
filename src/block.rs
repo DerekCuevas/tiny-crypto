@@ -209,15 +209,18 @@ mod tests {
         let keypair_alice = KeyPair::generate();
         let address_alice = Address::from_public_key(&keypair_alice.public_key);
 
-        let tx_a_body = TransactionBody {
-            input: TransactionInput::Reference(genesis_tx.output_reference(0).unwrap()),
+        let mut tx_a = Transaction {
+            input: TransactionInput {
+                content: TransactionInputType::Reference(genesis_tx.output_reference(0).unwrap()),
+                keyed_signature: None,
+            },
             outputs: vec![TransactionOutput {
                 value: 50,
                 address: address_alice.clone(),
             }],
         };
 
-        let tx_a = tx_a_body.into_tx(&keypair_bob).unwrap();
+        tx_a.sign(&keypair_bob).unwrap();
 
         let mut block = Block::new(&keypair_bob, &genesis_block, vec![tx_a.clone()]).unwrap();
 
