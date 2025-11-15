@@ -2,14 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use bincode::Encode;
-use rs_merkle::MerkleTree;
-use secp256k1::{PublicKey, SecretKey, ecdsa::Signature};
+use secp256k1::{PublicKey, ecdsa::Signature};
 
 use crate::{
     constants::{BLOCKS_PER_REWARD_HALVING, GENESIS_BLOCK_REWARD},
-    crypto::{
-        Address, Hash, KeyPair, Sha256dHasher, merkle_tree, sha256d, sign_message, verify_signature,
-    },
+    crypto::{Address, Hash, KeyPair, MerkleTree, SignatureExt, sha256d},
 };
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
@@ -54,24 +51,41 @@ impl TransactionBody {
         Ok(TxId(sha256d(&self.as_bytes()?)))
     }
 
-    pub fn sign(&self, secret_key: &SecretKey) -> Result<Signature> {
-        Ok(sign_message(&self.as_bytes()?, secret_key))
-    }
-
     pub fn into_tx(self, keypair: &KeyPair) -> Result<Transaction> {
         Ok(Transaction {
-            public_key: keypair.public_key,
-            signature: self.sign(&keypair.secret_key)?,
+            signing_info: SigningInfo::sign(keypair, &self.as_bytes()?),
             body: self,
         })
     }
 }
 
 #[derive(Debug, Clone)]
+pub struct SigningInfo {
+    pub signature: Signature,
+    pub public_key: PublicKey,
+}
+
+impl SigningInfo {
+    pub fn sign(keypair: &KeyPair, bytes: &[u8]) -> Self {
+        Self {
+            signature: keypair.sign(&bytes),
+            public_key: keypair.public_key,
+        }
+    }
+
+    pub fn verify_bytes(&self, bytes: &[u8]) -> Result<bool> {
+        Ok(self.signature.verify(bytes, &self.public_key))
+    }
+
+    pub fn address(&self) -> Address {
+        Address::from_public_key(&self.public_key)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Transaction {
     pub body: TransactionBody,
-    pub public_key: PublicKey,
-    pub signature: Signature,
+    pub signing_info: SigningInfo,
 }
 
 impl Transaction {
@@ -80,11 +94,7 @@ impl Transaction {
     }
 
     pub fn verify(&self) -> Result<bool> {
-        Ok(verify_signature(
-            &self.body.as_bytes()?,
-            &self.signature,
-            &self.public_key,
-        ))
+        self.signing_info.verify_bytes(&self.body.as_bytes()?)
     }
 
     pub fn output_reference(&self, index: usize) -> Result<TransactionOutputReference> {
@@ -116,7 +126,7 @@ impl Transaction {
         body.into_tx(&keypair)
     }
 
-    pub fn build_merkle_tree(transactions: &Vec<Self>) -> Result<MerkleTree<Sha256dHasher>> {
+    pub fn build_merkle_tree(transactions: &Vec<Self>) -> Result<MerkleTree> {
         let tx_ids = transactions
             .iter()
             .map(|tx| tx.id())
@@ -124,7 +134,7 @@ impl Transaction {
 
         let leaves = tx_ids.iter().map(|id| id.0.as_slice()).collect();
 
-        Ok(merkle_tree(leaves))
+        Ok(MerkleTree::from_leaves(leaves))
     }
 }
 
@@ -194,9 +204,9 @@ impl TransactionState {
                 return Err(anyhow::anyhow!("Transaction output index not found"));
             };
 
-            if output.address != Address::from_public_key(&tx.public_key) {
+            if output.address != tx.signing_info.address() {
                 return Err(anyhow::anyhow!(
-                    "Transaction output address does not match public key"
+                    "Transaction output address does not match input address"
                 ));
             }
 

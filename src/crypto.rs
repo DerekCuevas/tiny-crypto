@@ -1,6 +1,5 @@
 use bincode::Encode;
 use ripemd::Ripemd160;
-use rs_merkle::MerkleTree;
 use secp256k1::ecdsa::Signature;
 use secp256k1::{Message, Secp256k1};
 use secp256k1::{PublicKey, SecretKey, rand};
@@ -27,22 +26,26 @@ impl KeyPair {
             public_key,
         }
     }
+
+    pub fn sign(&self, bytes: &[u8]) -> Signature {
+        let secp = Secp256k1::new();
+        let digest = sha256d(bytes);
+        let message = Message::from_digest(digest);
+        secp.sign_ecdsa(message, &self.secret_key)
+    }
 }
 
-pub fn sign_message(message: &[u8], secret_key: &SecretKey) -> Signature {
-    let secp = Secp256k1::new();
-    let digest = sha256d(message);
-    let message = Message::from_digest(digest);
-
-    secp.sign_ecdsa(message, secret_key)
+pub trait SignatureExt {
+    fn verify(&self, bytes: &[u8], public_key: &PublicKey) -> bool;
 }
 
-pub fn verify_signature(message: &[u8], signature: &Signature, public_key: &PublicKey) -> bool {
-    let secp = Secp256k1::verification_only();
-    let digest = sha256d(message);
-    let message = Message::from_digest(digest);
-
-    secp.verify_ecdsa(message, &signature, &public_key).is_ok()
+impl SignatureExt for Signature {
+    fn verify(&self, bytes: &[u8], public_key: &PublicKey) -> bool {
+        let secp = Secp256k1::verification_only();
+        let digest = sha256d(bytes);
+        let message = Message::from_digest(digest);
+        secp.verify_ecdsa(message, &self, &public_key).is_ok()
+    }
 }
 
 #[derive(Debug, Clone, Encode, Eq, PartialEq)]
@@ -67,7 +70,7 @@ impl Address {
 }
 
 #[derive(Clone)]
-pub struct Sha256dHasher {}
+struct Sha256dHasher {}
 
 impl rs_merkle::Hasher for Sha256dHasher {
     type Hash = [u8; 32];
@@ -76,9 +79,22 @@ impl rs_merkle::Hasher for Sha256dHasher {
     }
 }
 
-pub fn merkle_tree(leaf_bytes: Vec<&[u8]>) -> MerkleTree<Sha256dHasher> {
-    let leaves: Vec<[u8; 32]> = leaf_bytes.iter().map(|x| sha256d(x)).collect();
-    MerkleTree::<Sha256dHasher>::from_leaves(&leaves)
+#[derive(Clone)]
+pub struct MerkleTree {
+    tree: rs_merkle::MerkleTree<Sha256dHasher>,
+}
+
+impl MerkleTree {
+    pub fn from_leaves(leaf_bytes: Vec<&[u8]>) -> Self {
+        let leaves: Vec<[u8; 32]> = leaf_bytes.iter().map(|x| sha256d(x)).collect();
+        Self {
+            tree: rs_merkle::MerkleTree::<Sha256dHasher>::from_leaves(&leaves),
+        }
+    }
+
+    pub fn root(&self) -> Option<Hash> {
+        self.tree.root()
+    }
 }
 
 #[cfg(test)]
@@ -91,13 +107,14 @@ mod tests {
         let key_pair_a = KeyPair::generate();
         let key_pair_b = KeyPair::generate();
 
-        let message = b"Hello, world!";
-        let signature = sign_message(message, &key_pair_a.secret_key);
-        let is_valid = verify_signature(message, &signature, &key_pair_a.public_key);
+        let bytes = b"Hello, world!";
+
+        let signature = key_pair_a.sign(bytes);
+        let is_valid = signature.verify(bytes, &key_pair_a.public_key);
 
         assert!(is_valid);
 
-        let expected_invalid = verify_signature(message, &signature, &key_pair_b.public_key);
+        let expected_invalid = signature.verify(bytes, &key_pair_b.public_key);
         assert!(!expected_invalid);
     }
 
@@ -113,7 +130,7 @@ mod tests {
     #[test]
     fn test_merkle_tree() {
         let leaves = vec![b"Hello, world!".as_slice(), b"Hello, world!".as_slice()];
-        let tree = merkle_tree(leaves);
+        let tree = MerkleTree::from_leaves(leaves);
 
         let root = tree.root().unwrap();
         println!("Root: 0x{}", hex::encode(root));
