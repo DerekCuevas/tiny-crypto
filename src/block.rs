@@ -118,6 +118,11 @@ impl Block {
         self.header.nonce = self.header.compute_nonce_naive()?;
         Ok(())
     }
+
+    pub fn validate(&self) -> Result<bool> {
+        self.header.validate_hash()?;
+        Ok(true)
+    }
 }
 
 #[cfg(test)]

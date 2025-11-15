@@ -9,12 +9,24 @@ use crate::{
     crypto::{Address, Hash, KeyPair, MerkleTree, SignatureExt, sha256d},
 };
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
+#[derive(Clone, Hash, Eq, PartialEq, Encode)]
 pub struct TxId(pub Hash);
 
 impl TxId {
     pub fn empty() -> Self {
         Self([0; 32])
+    }
+}
+
+impl std::fmt::Display for TxId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{}", hex::encode(self.0))
+    }
+}
+
+impl std::fmt::Debug for TxId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TxId({})", self.to_string())
     }
 }
 
@@ -172,20 +184,10 @@ impl UTXOSet {
 pub struct TransactionState {
     pub transactions: HashMap<TxId, Transaction>,
     pub uxto_set: UTXOSet,
+    pub pending_transactions: HashSet<TxId>,
 }
 
 impl TransactionState {
-    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
-        let id = transaction.id()?;
-
-        self.validate_transaction(&transaction)?;
-
-        self.uxto_set.update(&transaction)?;
-        self.transactions.insert(id, transaction);
-
-        Ok(())
-    }
-
     pub fn validate_transaction(&self, transaction: &Transaction) -> Result<()> {
         transaction.verify()?;
 
@@ -204,9 +206,9 @@ impl TransactionState {
                 return Err(anyhow::anyhow!("Transaction output index not found"));
             };
 
-            if output.address != tx.signing_info.address() {
+            if output.address != transaction.signing_info.address() {
                 return Err(anyhow::anyhow!(
-                    "Transaction output address does not match input address"
+                    "Transaction not signed by owner of output address"
                 ));
             }
 
@@ -217,6 +219,53 @@ impl TransactionState {
         }
 
         Ok(())
+    }
+
+    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<TxId> {
+        let id = transaction.id()?;
+
+        if self.transactions.contains_key(&id) {
+            return Ok(id);
+        }
+
+        self.validate_transaction(&transaction)?;
+
+        self.uxto_set.update(&transaction)?;
+        self.transactions.insert(id.clone(), transaction);
+
+        Ok(id)
+    }
+
+    fn flush_pending_transactions(&mut self) -> Result<Vec<Transaction>> {
+        let transactions = self
+            .pending_transactions
+            .iter()
+            .map(|id| {
+                self.transactions
+                    .get(id)
+                    .cloned()
+                    .ok_or(anyhow::anyhow!("Pending transaction not found"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        self.pending_transactions.clear();
+
+        Ok(transactions)
+    }
+
+    pub fn add_pending_transaction(
+        &mut self,
+        limit: usize,
+        transaction: Transaction,
+    ) -> Result<Option<Vec<Transaction>>> {
+        let id = self.add_transaction(transaction)?;
+        self.pending_transactions.insert(id);
+
+        if self.pending_transactions.len() >= limit {
+            return Ok(Some(self.flush_pending_transactions()?));
+        }
+
+        Ok(None)
     }
 }
 
