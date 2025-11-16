@@ -9,7 +9,7 @@ use crate::{
     transaction::Transaction,
 };
 
-#[derive(Debug, Clone, Encode, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Default)]
 pub struct BlockHeader {
     pub previous_block_hash: Hash,
     pub merkle_root: Hash,

@@ -1,7 +1,8 @@
 use crate::{
     block::Block,
+    chain::Blockchain,
     crypto::KeyPair,
-    transaction::{Transaction, TransactionState},
+    transaction::{Transaction, TransactionState, UTXOSet},
 };
 use anyhow::Result;
 
@@ -11,9 +12,9 @@ pub enum Message {
     NewTransaction(Transaction),
 }
 
-pub struct Blockchain {
-    pub blocks: Vec<Block>,
-    pub head: Option<Block>,
+pub struct BlockchainState {
+    pub uxto_set: UTXOSet,
+    pub active_chain: Blockchain,
 }
 
 #[derive(Clone)]
@@ -27,7 +28,6 @@ pub struct NodeConfig {
     pub settings: NodeSettings,
 }
 
-// TODO: Atomic state, rollback handling
 #[derive(Clone)]
 pub struct Node {
     pub config: NodeConfig,
