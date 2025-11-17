@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use anyhow::Result;
 use bincode::Encode;
 use secp256k1::{PublicKey, ecdsa::Signature};
@@ -85,7 +83,7 @@ impl SigningInfo {
         }
     }
 
-    pub fn verify_bytes(&self, bytes: &[u8]) -> Result<bool> {
+    pub fn verify_signature_bytes(&self, bytes: &[u8]) -> Result<bool> {
         Ok(self.signature.verify(bytes, &self.public_key))
     }
 
@@ -105,8 +103,9 @@ impl Transaction {
         self.body.id()
     }
 
-    pub fn verify(&self) -> Result<bool> {
-        self.signing_info.verify_bytes(&self.body.as_bytes()?)
+    pub fn verify_signature(&self) -> Result<bool> {
+        self.signing_info
+            .verify_signature_bytes(&self.body.as_bytes()?)
     }
 
     pub fn output_reference(&self, index: usize) -> Result<TransactionOutputReference> {
@@ -150,125 +149,6 @@ impl Transaction {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct UTXOSet {
-    pub outputs: HashSet<TransactionOutputReference>,
-}
-
-impl UTXOSet {
-    pub fn update(&mut self, transaction: &Transaction) -> Result<()> {
-        let TransactionBody { input, outputs } = &transaction.body;
-
-        if let TransactionInput::Reference(reference) = input {
-            let removed = self.outputs.remove(&reference);
-            if !removed {
-                return Err(anyhow::anyhow!("Transaction output reference not found"));
-            }
-        }
-
-        let new_unspent_outputs = outputs
-            .iter()
-            .enumerate()
-            .map(|(index, _o)| transaction.output_reference(index))
-            .collect::<Result<Vec<_>>>()?;
-
-        for output in new_unspent_outputs {
-            self.outputs.insert(output);
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TransactionState {
-    pub transactions: HashMap<TxId, Transaction>,
-    pub uxto_set: UTXOSet,
-    pub pending_transactions: HashSet<TxId>,
-}
-
-impl TransactionState {
-    pub fn validate_transaction(&self, transaction: &Transaction) -> Result<()> {
-        transaction.verify()?;
-
-        let TransactionBody { input, outputs } = &transaction.body;
-
-        if let TransactionInput::Reference(reference) = input {
-            let Some(tx) = self.transactions.get(&reference.id) else {
-                return Err(anyhow::anyhow!("Transaction output reference not found"));
-            };
-
-            let Some(output_ref) = self.uxto_set.outputs.get(&reference) else {
-                return Err(anyhow::anyhow!("Transaction output already spent"));
-            };
-
-            let Some(output) = tx.body.outputs.get(output_ref.index) else {
-                return Err(anyhow::anyhow!("Transaction output index not found"));
-            };
-
-            if output.address != transaction.signing_info.address() {
-                return Err(anyhow::anyhow!(
-                    "Transaction not signed by owner of output address"
-                ));
-            }
-
-            let tx_output_value = outputs.iter().map(|o| o.value).sum::<u64>();
-            if tx_output_value != output.value {
-                return Err(anyhow::anyhow!("Transaction output value does not match"));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<TxId> {
-        let id = transaction.id()?;
-
-        if self.transactions.contains_key(&id) {
-            return Ok(id);
-        }
-
-        self.validate_transaction(&transaction)?;
-
-        self.uxto_set.update(&transaction)?;
-        self.transactions.insert(id.clone(), transaction);
-
-        Ok(id)
-    }
-
-    fn flush_pending_transactions(&mut self) -> Result<Vec<Transaction>> {
-        let transactions = self
-            .pending_transactions
-            .iter()
-            .map(|id| {
-                self.transactions
-                    .get(id)
-                    .cloned()
-                    .ok_or(anyhow::anyhow!("Pending transaction not found"))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        self.pending_transactions.clear();
-
-        Ok(transactions)
-    }
-
-    pub fn add_pending_transaction(
-        &mut self,
-        limit: usize,
-        transaction: Transaction,
-    ) -> Result<Option<Vec<Transaction>>> {
-        let id = self.add_transaction(transaction)?;
-        self.pending_transactions.insert(id);
-
-        if self.pending_transactions.len() >= limit {
-            return Ok(Some(self.flush_pending_transactions()?));
-        }
-
-        Ok(None)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,8 +156,6 @@ mod tests {
 
     #[test]
     fn test_transaction() {
-        let mut state = TransactionState::default();
-
         let keypair_bob = KeyPair::generate();
         let address_bob = Address::from_public_key(&keypair_bob.public_key);
 
@@ -291,55 +169,6 @@ mod tests {
 
         let tx_a = tx_a_body.into_tx(&keypair_bob).unwrap();
 
-        state.add_transaction(tx_a.clone()).unwrap();
-
-        assert!(
-            state
-                .uxto_set
-                .outputs
-                .contains(&tx_a.output_reference(0).unwrap())
-        );
-
-        let keypair_alice = KeyPair::generate();
-        let address_alice = Address::from_public_key(&keypair_alice.public_key);
-
-        let tx_b_body = TransactionBody {
-            input: TransactionInput::Reference(tx_a.output_reference(0).unwrap()),
-            outputs: vec![
-                TransactionOutput {
-                    value: 50,
-                    address: address_alice,
-                },
-                TransactionOutput {
-                    value: 50,
-                    address: address_bob,
-                },
-            ],
-        };
-
-        let tx_b = tx_b_body.into_tx(&keypair_bob).unwrap();
-
-        state.add_transaction(tx_b.clone()).unwrap();
-
-        assert!(
-            !state
-                .uxto_set
-                .outputs
-                .contains(&tx_a.output_reference(0).unwrap())
-        );
-
-        assert!(
-            state
-                .uxto_set
-                .outputs
-                .contains(&tx_b.output_reference(0).unwrap())
-        );
-
-        assert!(
-            state
-                .uxto_set
-                .outputs
-                .contains(&tx_b.output_reference(1).unwrap())
-        );
+        assert!(tx_a.verify_signature().unwrap());
     }
 }

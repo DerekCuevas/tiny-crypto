@@ -119,6 +119,7 @@ impl Block {
         Ok(())
     }
 
+    // TODO: validate transactions
     pub fn validate(&self) -> Result<bool> {
         self.header.validate_hash()?;
         Ok(true)

@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use anyhow::Result;
+
 use crate::block::{Block, BlockHeader};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +42,34 @@ impl Blockchain {
         Self { nodes }
     }
 
+    pub fn add_block(&mut self, block: &Block) -> Result<()> {
+        if self.contains_block(&block) {
+            return Ok(());
+        }
+
+        let tail = self.tail();
+
+        let is_next = tail
+            .as_ref()
+            .map(|t| t.height + 1 == block.height)
+            .unwrap_or(true);
+
+        // TODO: handle fork
+        if !is_next {
+            return Err(anyhow::anyhow!("Block is not the next in the chain"));
+        }
+
+        let node = BlockchainNode {
+            height: block.height,
+            header: block.header.clone(),
+            previous: tail.clone(),
+        };
+
+        self.nodes.insert(block.height, Arc::new(node));
+
+        Ok(())
+    }
+
     pub fn height(&self) -> u32 {
         self.nodes
             .last_key_value()
@@ -47,12 +77,12 @@ impl Blockchain {
             .unwrap_or(0)
     }
 
-    pub fn tail(&self) -> Option<&BlockchainNode> {
-        self.nodes.last_key_value().map(|(_, node)| node.as_ref())
+    pub fn tail(&self) -> Option<Arc<BlockchainNode>> {
+        self.nodes.last_key_value().map(|(_, node)| node.clone())
     }
 
-    pub fn get_node(&self, height: u32) -> Option<&BlockchainNode> {
-        self.nodes.get(&height).map(|node| node.as_ref())
+    pub fn get_node(&self, height: u32) -> Option<Arc<BlockchainNode>> {
+        self.nodes.get(&height).map(|node| node.clone())
     }
 
     pub fn contains_node(&self, index: &BlockchainNode) -> bool {
@@ -133,8 +163,12 @@ mod tests {
         assert!(chain_b.contains_block(&block_e));
 
         let tail_b_node = chain_b.tail().unwrap();
-        let fork = chain_a.find_fork(tail_b_node).unwrap();
+        let fork = chain_a.find_fork(&tail_b_node).unwrap();
 
         assert_eq!(fork.height, 3);
+
+        let mut chain_c = chain_a.clone();
+        chain_c.add_block(&block_d).unwrap();
+        assert_eq!(chain_c.height(), 4);
     }
 }
