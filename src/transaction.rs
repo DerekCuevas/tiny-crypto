@@ -125,7 +125,7 @@ impl Transaction {
         })
     }
 
-    fn block_reward(height: u32) -> u64 {
+    pub fn block_reward(height: u32) -> u64 {
         GENESIS_BLOCK_REWARD as u64 / 2u32.pow(height / BLOCKS_PER_REWARD_HALVING) as u64
     }
 

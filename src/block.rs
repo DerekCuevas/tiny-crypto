@@ -137,15 +137,31 @@ impl Block {
 
         let (first_txs, remaining_txs) = self.transactions.split_at(1);
 
-        let first_tx = first_txs.first().ok_or(anyhow::anyhow!(
+        let coinbase_tx = first_txs.first().ok_or(anyhow::anyhow!(
             "Block must contain at least one transaction"
         ))?;
 
-        tx_ids.insert(first_tx.id()?);
+        tx_ids.insert(coinbase_tx.id()?);
 
-        if !first_tx.body.input.is_coinbase() {
+        if !coinbase_tx.body.input.is_coinbase() {
             return Err(anyhow::anyhow!(
                 "First transaction must be a coinbase transaction"
+            ));
+        }
+
+        let expected_block_reward = Transaction::block_reward(self.height);
+        let block_reward = coinbase_tx
+            .body
+            .outputs
+            .iter()
+            .map(|o| o.value)
+            .sum::<u64>();
+
+        if block_reward != expected_block_reward {
+            return Err(anyhow::anyhow!(
+                "Block reward for coinbase transaction does not match expected block reward: {} != {}",
+                block_reward,
+                expected_block_reward
             ));
         }
 
