@@ -50,12 +50,34 @@ impl NodeState {
 
     pub fn add_block(&mut self, block: Block) -> Result<()> {
         let hash = block.header.hash()?;
-        block.validate()?;
 
-        self.chain.add_block(&block)?;
-        self.store.insert(hash, block);
+        if self.store.contains_key(&hash) {
+            return Ok(());
+        }
+
+        block.validate()?;
+        self.store.insert(hash, block.clone());
+
+        let previous_block = self.store.get(&block.header.previous_block_hash);
+
+        if previous_block.is_none() && !self.chain.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(previous_block) = previous_block {
+            if !self.chain.is_tail_block(&previous_block)? {
+                todo!("reorg chain");
+            }
+        }
+
+        self.chain.append_block(&block)?;
         self.build_uxto_set()?;
 
+        Ok(())
+    }
+
+    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        self.mem_pool.add(&self.uxto_set, transaction)?;
         Ok(())
     }
 }
@@ -96,7 +118,7 @@ impl Node {
     }
 
     fn handle_new_transaction(&mut self, transaction: Transaction) -> Result<()> {
-        self.state.mem_pool.add(&self.state.uxto_set, transaction)?;
+        self.state.add_transaction(transaction)?;
 
         // TODO: queue for mining
         if self.state.mem_pool.is_full() {

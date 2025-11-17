@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashSet};
 
 use anyhow::Result;
 use bincode::Encode;
@@ -119,10 +119,66 @@ impl Block {
         Ok(())
     }
 
-    // TODO: validate transactions
-    pub fn validate(&self) -> Result<bool> {
+    fn validate_merkle_root(&self) -> Result<()> {
+        let merkle_tree = Transaction::build_merkle_tree(&self.transactions)?;
+        let merkle_root = merkle_tree
+            .root()
+            .ok_or(anyhow::anyhow!("Failed to compute merkle root"))?;
+
+        if self.header.merkle_root != merkle_root {
+            return Err(anyhow::anyhow!("Merkle root mismatch"));
+        }
+
+        Ok(())
+    }
+
+    fn validate_transactions(&self) -> Result<()> {
+        let mut tx_ids = HashSet::new();
+
+        let (first_txs, remaining_txs) = self.transactions.split_at(1);
+
+        let first_tx = first_txs.first().ok_or(anyhow::anyhow!(
+            "Block must contain at least one transaction"
+        ))?;
+
+        tx_ids.insert(first_tx.id()?);
+
+        if !first_tx.body.input.is_coinbase() {
+            return Err(anyhow::anyhow!(
+                "First transaction must be a coinbase transaction"
+            ));
+        }
+
+        for block_tx in remaining_txs {
+            let id = block_tx.id()?;
+
+            if tx_ids.contains(&id) {
+                return Err(anyhow::anyhow!(
+                    "Transaction appears multiple times in the block"
+                ));
+            }
+
+            if block_tx.body.input.is_coinbase() {
+                return Err(anyhow::anyhow!(
+                    "Only one coinbase transactions is allowed per block"
+                ));
+            }
+
+            if !block_tx.verify_signature()? {
+                return Err(anyhow::anyhow!("Transaction signature is invalid"));
+            }
+
+            tx_ids.insert(id);
+        }
+
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<()> {
         self.header.validate_hash()?;
-        Ok(true)
+        self.validate_merkle_root()?;
+        self.validate_transactions()?;
+        Ok(())
     }
 }
 

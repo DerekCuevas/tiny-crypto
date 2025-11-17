@@ -42,30 +42,53 @@ impl Blockchain {
         Self { nodes }
     }
 
-    pub fn add_block(&mut self, block: &Block) -> Result<()> {
-        if self.contains_block(&block) {
+    pub fn is_empty(&self) -> bool {
+        self.tail().is_none()
+    }
+
+    pub fn is_tail_block(&self, block: &Block) -> Result<bool> {
+        let Some(tail) = self.tail() else {
+            return Ok(false);
+        };
+
+        if tail.header.hash()? != block.header.hash()? {
+            return Ok(false);
+        }
+
+        if tail.height != block.height {
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    pub fn append_block(&mut self, block: &Block) -> Result<()> {
+        if self.contains_block(block) {
             return Ok(());
         }
 
         let tail = self.tail();
 
-        let is_next = tail
-            .as_ref()
-            .map(|t| t.height + 1 == block.height)
-            .unwrap_or(true);
+        if let Some(tail) = tail.as_ref() {
+            let tail_hash = tail.header.hash()?;
 
-        // TODO: handle fork
-        if !is_next {
-            return Err(anyhow::anyhow!("Block is not the next in the chain"));
+            if tail_hash != block.header.previous_block_hash {
+                return Err(anyhow::anyhow!("Block hash is not the next in the chain"));
+            }
+
+            if tail.height + 1 != block.height {
+                return Err(anyhow::anyhow!("Block height is not the next in the chain"));
+            }
         }
 
-        let node = BlockchainNode {
-            height: block.height,
-            header: block.header.clone(),
-            previous: tail.clone(),
-        };
-
-        self.nodes.insert(block.height, Arc::new(node));
+        self.nodes.insert(
+            block.height,
+            Arc::new(BlockchainNode {
+                height: block.height,
+                header: block.header.clone(),
+                previous: tail.clone(),
+            }),
+        );
 
         Ok(())
     }
@@ -85,10 +108,10 @@ impl Blockchain {
         self.nodes.get(&height).map(|node| node.clone())
     }
 
-    pub fn contains_node(&self, index: &BlockchainNode) -> bool {
+    pub fn contains_node(&self, index: &Arc<BlockchainNode>) -> bool {
         self.nodes
             .get(&index.height)
-            .is_some_and(|node| node.as_ref() == index)
+            .is_some_and(|node| node.as_ref() == index.as_ref())
     }
 
     pub fn contains_block(&self, block: &Block) -> bool {
@@ -97,8 +120,8 @@ impl Blockchain {
             .is_some_and(|node| node.header.hash().ok() == block.header.hash().ok())
     }
 
-    pub fn find_fork(&self, other_chain_node: &BlockchainNode) -> Option<Arc<BlockchainNode>> {
-        let mut current_node = Some(Arc::new(other_chain_node.clone()));
+    pub fn find_fork(&self, other_chain_node: &Arc<BlockchainNode>) -> Option<Arc<BlockchainNode>> {
+        let mut current_node = Some(Arc::clone(other_chain_node));
 
         while let Some(node) = current_node {
             if self.contains_node(&node) {
@@ -168,7 +191,7 @@ mod tests {
         assert_eq!(fork.height, 3);
 
         let mut chain_c = chain_a.clone();
-        chain_c.add_block(&block_d).unwrap();
+        chain_c.append_block(&block_d).unwrap();
         assert_eq!(chain_c.height(), 4);
     }
 }

@@ -46,6 +46,12 @@ pub enum TransactionInput {
     Reference(TransactionOutputReference),
 }
 
+impl TransactionInput {
+    pub fn is_coinbase(&self) -> bool {
+        matches!(self, TransactionInput::Coinbase { .. })
+    }
+}
+
 #[derive(Debug, Clone, Encode)]
 pub struct TransactionBody {
     pub input: TransactionInput,
