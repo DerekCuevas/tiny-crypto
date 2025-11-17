@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::{transaction::Transaction, utxo_set::UTXOSet};
 
-// FIXME: support spending pending transactions
 #[derive(Debug, Clone)]
 pub struct MemPool {
     pub size: usize,
@@ -26,7 +25,12 @@ impl MemPool {
             return Err(anyhow::anyhow!("MemPool is full"));
         }
 
-        utxo_set.validate_transaction(&transaction)?;
+        let mut pending_utxo_set = utxo_set.clone();
+        for tx in self.pending_transactions.iter() {
+            pending_utxo_set.update(tx)?;
+        }
+
+        pending_utxo_set.validate_transaction(&transaction)?;
         self.pending_transactions.push(transaction);
 
         Ok(())

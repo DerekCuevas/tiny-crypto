@@ -127,6 +127,7 @@ mod tests {
     use crate::constants::*;
     use crate::crypto::*;
     use crate::transaction::*;
+    use std::collections::HashSet;
 
     fn genesis_block(keypair: &KeyPair, difficulty: u8) -> Result<Block> {
         let height = 1;
@@ -200,38 +201,42 @@ mod tests {
 
         assert_eq!(node.state.mem_pool.pending_transactions.len(), 1);
 
-        // // second transaction from alice to charlie
-        // let keypair_charlie = KeyPair::generate();
-        // let address_charlie = Address::from_public_key(&keypair_charlie.public_key);
+        // second transaction from alice to charlie
+        let keypair_charlie = KeyPair::generate();
+        let address_charlie = Address::from_public_key(&keypair_charlie.public_key);
 
-        // let tx_b_body = TransactionBody {
-        //     input: TransactionInput::Reference(tx_a.output_reference(0).unwrap()),
-        //     outputs: vec![TransactionOutput {
-        //         value: (GENESIS_BLOCK_REWARD / 2) as u64,
-        //         address: address_charlie.clone(),
-        //     }],
-        // };
+        let tx_b_body = TransactionBody {
+            input: TransactionInput::Reference(tx_a.output_reference(0).unwrap()),
+            outputs: vec![TransactionOutput {
+                value: (GENESIS_BLOCK_REWARD / 2) as u64,
+                address: address_charlie.clone(),
+            }],
+        };
 
-        // let tx_b = tx_b_body.into_tx(&keypair_alice).unwrap();
+        let tx_b = tx_b_body.into_tx(&keypair_alice).unwrap();
 
-        // node.handle_message(Message::NewTransaction(tx_b.clone()))
-        //     .unwrap();
+        node.handle_message(Message::NewTransaction(tx_b.clone()))
+            .unwrap();
 
         // verify pending transactions are flushed and added to a new latest block
-        // assert_eq!(node.tx_state.pending_transactions.len(), 0);
+        assert_eq!(node.state.mem_pool.pending_transactions.len(), 0);
 
-        // let latest_block = node.latest_block.as_ref().unwrap();
-        // assert_eq!(latest_block.height, 1);
+        let latest_block = node.state.chain.tail().unwrap();
+        assert_eq!(latest_block.height, 2);
 
-        // let latest_block_transaction_ids = latest_block
-        //     .transactions
-        //     .iter()
-        //     .map(|tx| tx.id())
-        //     .collect::<Result<HashSet<_>>>()
-        //     .unwrap();
+        let latest_block_transaction_ids = node
+            .state
+            .store
+            .get(&latest_block.header.hash().unwrap())
+            .unwrap()
+            .transactions
+            .iter()
+            .map(|tx| tx.id())
+            .collect::<Result<HashSet<_>>>()
+            .unwrap();
 
-        // let expected_transaction_ids = HashSet::from([tx_a.id().unwrap(), tx_b.id().unwrap()]);
+        let expected_transaction_ids = HashSet::from([tx_a.id().unwrap(), tx_b.id().unwrap()]);
 
-        // assert!(latest_block_transaction_ids.is_superset(&expected_transaction_ids));
+        assert!(latest_block_transaction_ids.is_superset(&expected_transaction_ids));
     }
 }
