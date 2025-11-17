@@ -10,24 +10,16 @@ use crate::{
 };
 use anyhow::Result;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NodeState {
     pub store: HashMap<Hash, Block>,
     pub chain: Blockchain,
     pub uxto_set: UTXOSet,
     pub mem_pool: MemPool,
+    pub orphan_blocks: HashMap<Hash, Block>,
 }
 
 impl NodeState {
-    pub fn new(mem_pool_size: usize) -> Self {
-        Self {
-            store: HashMap::new(),
-            chain: Blockchain::default(),
-            uxto_set: UTXOSet::default(),
-            mem_pool: MemPool::new(mem_pool_size),
-        }
-    }
-
     pub fn tail_block(&self) -> Option<&Block> {
         self.chain
             .tail()
@@ -56,11 +48,11 @@ impl NodeState {
         }
 
         block.validate()?;
-        self.store.insert(hash, block.clone());
 
         let previous_block = self.store.get(&block.header.previous_block_hash);
 
         if previous_block.is_none() && !self.chain.is_empty() {
+            self.orphan_blocks.insert(hash, block);
             return Ok(());
         }
 
@@ -70,6 +62,7 @@ impl NodeState {
             }
         }
 
+        self.store.insert(hash, block.clone());
         self.chain.append_block(&block)?;
         self.build_uxto_set()?;
 
@@ -89,14 +82,8 @@ pub enum Message {
 }
 
 #[derive(Clone)]
-pub struct NodeSettings {
-    pub block_size_limit: usize,
-}
-
-#[derive(Clone)]
 pub struct NodeConfig {
     pub keypair: KeyPair,
-    pub settings: NodeSettings,
 }
 
 #[derive(Clone)]
@@ -108,36 +95,22 @@ pub struct Node {
 impl Node {
     pub fn new(config: NodeConfig) -> Self {
         Self {
-            state: NodeState::new(config.settings.block_size_limit),
+            state: NodeState::default(),
             config,
         }
     }
 
-    fn handle_new_block(&mut self, block: Block) -> Result<()> {
-        self.state.add_block(block)
-    }
-
-    fn handle_new_transaction(&mut self, transaction: Transaction) -> Result<()> {
-        self.state.add_transaction(transaction)?;
-
-        // TODO: queue for mining
-        if self.state.mem_pool.is_full() {
-            let transactions = self.state.mem_pool.drain();
-
-            if let Some(previous_block) = self.state.tail_block() {
-                let mut block = Block::new(&self.config.keypair, previous_block, transactions)?;
-                block.mine()?;
-                self.handle_new_block(block)?;
-            }
-        }
-
-        Ok(())
+    pub fn into_block(&mut self, previous_block: &Block) -> Result<Block> {
+        let transactions = self.state.mem_pool.drain();
+        let mut block = Block::new(&self.config.keypair, previous_block, transactions)?;
+        block.mine()?;
+        Ok(block)
     }
 
     pub fn handle_message(&mut self, message: Message) -> Result<()> {
         match message {
-            Message::NewBlock(block) => self.handle_new_block(block),
-            Message::NewTransaction(transaction) => self.handle_new_transaction(transaction),
+            Message::NewBlock(block) => self.state.add_block(block),
+            Message::NewTransaction(transaction) => self.state.add_transaction(transaction),
         }
     }
 }
@@ -185,9 +158,6 @@ mod tests {
 
         let mut node = Node::new(NodeConfig {
             keypair: keypair_bob.clone(),
-            settings: NodeSettings {
-                block_size_limit: 2,
-            },
         });
 
         let genesis_block = genesis_block(&keypair_bob, 2).unwrap();
@@ -239,6 +209,10 @@ mod tests {
 
         node.handle_message(Message::NewTransaction(tx_b.clone()))
             .unwrap();
+
+        // create a new block with the pending transactions and add it to the chain
+        let block = node.into_block(&genesis_block).unwrap();
+        node.handle_message(Message::NewBlock(block)).unwrap();
 
         // verify pending transactions are flushed and added to a new latest block
         assert_eq!(node.state.mem_pool.pending_transactions.len(), 0);
