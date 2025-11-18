@@ -27,7 +27,7 @@ impl BlockHeader {
         Ok(sha256d(&self.as_bytes()?))
     }
 
-    fn difficulty_target(&self) -> Result<Hash> {
+    pub fn difficulty_target(&self) -> Result<Hash> {
         if self.difficulty >= 32 {
             return Err(anyhow::anyhow!("Difficultly target is too high"));
         }
