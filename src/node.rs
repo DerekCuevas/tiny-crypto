@@ -1,36 +1,23 @@
-use std::collections::HashMap;
-
 use crate::{
-    block::Block,
-    chain::Blockchain,
-    crypto::{Hash, KeyPair},
-    mem_pool::MemPool,
-    transaction::Transaction,
-    utxo_set::UTXOSet,
+    block::Block, block_manager::BlockManager, chain::Blockchain, crypto::KeyPair,
+    mem_pool::MemPool, transaction::Transaction, utxo_set::UTXOSet,
 };
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default)]
 pub struct NodeState {
-    pub store: HashMap<Hash, Block>,
+    pub block_manager: BlockManager,
     pub chain: Blockchain,
     pub uxto_set: UTXOSet,
     pub mem_pool: MemPool,
-    pub orphan_blocks: HashMap<Hash, Block>,
 }
 
 impl NodeState {
-    pub fn tail_block(&self) -> Option<&Block> {
-        self.chain
-            .tail()
-            .and_then(|node| self.store.get(&node.header.hash().ok()?))
-    }
-
     pub fn build_uxto_set(&mut self) -> Result<()> {
         self.uxto_set = UTXOSet::default();
 
         for node in self.chain.nodes.values() {
-            if let Some(block) = self.store.get(&node.header.hash()?) {
+            if let Some(block) = self.block_manager.get_block(&node.header.hash()?) {
                 for tx in &block.transactions {
                     self.uxto_set.update(tx)?;
                 }
@@ -43,28 +30,20 @@ impl NodeState {
     pub fn add_block(&mut self, block: Block) -> Result<()> {
         let hash = block.header.hash()?;
 
-        if self.store.contains_key(&hash) {
+        if self.block_manager.contains_block(&hash) {
             return Ok(());
         }
 
         block.validate()?;
 
-        let previous_block = self.store.get(&block.header.previous_block_hash);
-
-        if previous_block.is_none() && !self.chain.is_empty() {
-            self.orphan_blocks.insert(hash, block);
+        let Some(node) = self.block_manager.add_block(block)? else {
             return Ok(());
-        }
+        };
 
-        if let Some(previous_block) = previous_block {
-            if !self.chain.is_tail_block(&previous_block)? {
-                todo!("reorg chain");
-            }
+        if node.work >= self.chain.chain_work().unwrap_or_default() {
+            self.chain.set_tail(node)?;
+            self.build_uxto_set()?;
         }
-
-        self.store.insert(hash, block.clone());
-        self.chain.append_block(&block)?;
-        self.build_uxto_set()?;
 
         Ok(())
     }
@@ -124,35 +103,43 @@ mod tests {
     use crate::transaction::*;
     use std::collections::HashSet;
 
-    fn genesis_block(keypair: &KeyPair, difficulty: u8) -> Result<Block> {
-        let height = 1;
-        let timestamp = chrono::Utc::now().timestamp() as u32;
-        let coinbase_tx = Transaction::new_coinbase(keypair, height).unwrap();
-        let transactions = vec![coinbase_tx];
-        let merkle_tree = Transaction::build_merkle_tree(&transactions).unwrap();
-        let merkle_root = merkle_tree.root().unwrap();
+    fn test_block(
+        keypair: &KeyPair,
+        difficulty: u8,
+        previous: Option<&Block>,
+        transactions: Vec<Transaction>,
+    ) -> Result<Block> {
+        let height = previous.map(|p| p.height + 1).unwrap_or(1);
+
+        let coinbase_tx = Transaction::new_coinbase(keypair, height)?;
+        let mut block_transactions = vec![coinbase_tx];
+        block_transactions.extend(transactions);
+
+        let merkle_tree = Transaction::build_merkle_tree(&block_transactions)?;
+        let merkle_root = merkle_tree.root().unwrap_or_default();
 
         let header = BlockHeader {
-            previous_block_hash: [0; 32],
+            previous_block_hash: previous
+                .and_then(|p| p.header.hash().ok())
+                .unwrap_or_default(),
             merkle_root,
-            timestamp,
+            timestamp: chrono::Utc::now().timestamp() as u32,
             difficulty,
             nonce: 0,
         };
 
         let mut block = Block {
-            height,
             header,
-            transactions,
+            height,
+            transactions: block_transactions,
         };
 
-        block.mine().unwrap();
-
+        block.mine()?;
         Ok(block)
     }
 
     #[test]
-    fn test_node() {
+    fn test_append_transactions() {
         let keypair_bob = KeyPair::generate();
         let address_bob = Address::from_public_key(&keypair_bob.public_key);
 
@@ -160,7 +147,7 @@ mod tests {
             keypair: keypair_bob.clone(),
         });
 
-        let genesis_block = genesis_block(&keypair_bob, 2).unwrap();
+        let genesis_block = test_block(&keypair_bob, 2, None, vec![]).unwrap();
         node.handle_message(Message::NewBlock(genesis_block.clone()))
             .unwrap();
 
@@ -217,13 +204,13 @@ mod tests {
         // verify pending transactions are flushed and added to a new latest block
         assert_eq!(node.state.mem_pool.pending_transactions.len(), 0);
 
-        let latest_block = node.state.chain.tail().unwrap();
-        assert_eq!(latest_block.height, 2);
+        let tail_node = node.state.chain.tail().unwrap();
+        assert_eq!(tail_node.height, 2);
 
         let latest_block_transaction_ids = node
             .state
-            .store
-            .get(&latest_block.header.hash().unwrap())
+            .block_manager
+            .get_block(&tail_node.header.hash().unwrap())
             .unwrap()
             .transactions
             .iter()
@@ -234,5 +221,38 @@ mod tests {
         let expected_transaction_ids = HashSet::from([tx_a.id().unwrap(), tx_b.id().unwrap()]);
 
         assert!(latest_block_transaction_ids.is_superset(&expected_transaction_ids));
+    }
+
+    #[test]
+    fn test_append_block() {
+        let keypair = KeyPair::generate();
+
+        let mut node = Node::new(NodeConfig {
+            keypair: keypair.clone(),
+        });
+
+        let block_a = test_block(&keypair, 2, None, vec![]).unwrap();
+        node.handle_message(Message::NewBlock(block_a.clone()))
+            .unwrap();
+
+        assert_eq!(node.state.chain.height(), 1);
+
+        let block_b = test_block(&keypair, 2, Some(&block_a), vec![]).unwrap();
+        node.handle_message(Message::NewBlock(block_b.clone()))
+            .unwrap();
+
+        assert_eq!(node.state.chain.height(), 2);
+
+        // add a block that is not the next in the chain, should be orphaned
+        let block_c = test_block(&keypair, 2, Some(&block_b), vec![]).unwrap();
+        let block_d = test_block(&keypair, 2, Some(&block_c), vec![]).unwrap();
+
+        assert_eq!(node.state.block_manager.orphan_blocks.len(), 0);
+
+        node.handle_message(Message::NewBlock(block_d.clone()))
+            .unwrap();
+
+        assert_eq!(node.state.block_manager.orphan_blocks.len(), 1);
+        assert_eq!(node.state.chain.height(), 2);
     }
 }

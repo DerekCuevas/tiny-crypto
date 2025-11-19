@@ -1,4 +1,5 @@
 pub mod block;
+pub mod block_manager;
 pub mod chain;
 pub mod constants;
 pub mod crypto;

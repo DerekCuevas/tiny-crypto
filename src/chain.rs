@@ -151,6 +151,25 @@ impl Blockchain {
             .is_some_and(|node| node.header.hash().ok() == block.header.hash().ok())
     }
 
+    pub fn set_tail(&mut self, node: Arc<BlockchainNode>) -> Result<()> {
+        self.nodes.retain(|_, n| n.height < node.height);
+
+        let mut current_node = node.previous.clone();
+
+        self.nodes.insert(node.height, node);
+
+        while let Some(node) = current_node {
+            if self.contains_node(&node) {
+                break;
+            }
+
+            current_node = node.previous.clone();
+            self.nodes.insert(node.height, node);
+        }
+
+        Ok(())
+    }
+
     pub fn find_fork(&self, other_chain_node: &Arc<BlockchainNode>) -> Option<Arc<BlockchainNode>> {
         let mut current_node = Some(Arc::clone(other_chain_node));
 
