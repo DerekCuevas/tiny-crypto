@@ -13,7 +13,7 @@ pub struct NodeState {
 }
 
 impl NodeState {
-    pub fn build_uxto_set(&mut self) -> Result<()> {
+    pub fn build_utxo_set(&mut self) -> Result<()> {
         self.utxo_set = UTXOSet::default();
 
         for node in self.chain.nodes.values() {
@@ -42,7 +42,7 @@ impl NodeState {
 
         if node.work >= self.chain.chain_work().unwrap_or_default() {
             self.chain.set_tail(node)?;
-            self.build_uxto_set()?;
+            self.build_utxo_set()?;
         }
 
         Ok(())

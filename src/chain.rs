@@ -77,49 +77,6 @@ impl Blockchain {
         self.tail().is_none()
     }
 
-    pub fn is_tail_block(&self, block: &Block) -> Result<bool> {
-        let Some(tail) = self.tail() else {
-            return Ok(false);
-        };
-
-        if tail.header.hash()? != block.header.hash()? {
-            return Ok(false);
-        }
-
-        if tail.height != block.height {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    pub fn append_block(&mut self, block: &Block) -> Result<()> {
-        if self.contains_block(block) {
-            return Ok(());
-        }
-
-        let tail = self.tail();
-
-        if let Some(tail) = tail.as_ref() {
-            let tail_hash = tail.header.hash()?;
-
-            if tail_hash != block.header.previous_block_hash {
-                return Err(anyhow::anyhow!("Block hash is not the next in the chain"));
-            }
-
-            if tail.height + 1 != block.height {
-                return Err(anyhow::anyhow!("Block height is not the next in the chain"));
-            }
-        }
-
-        let mut node = BlockchainNode::new(block);
-        node.set_previous(tail)?;
-
-        self.nodes.insert(block.height, Arc::new(node));
-
-        Ok(())
-    }
-
     pub fn height(&self) -> u32 {
         self.nodes
             .last_key_value()
@@ -169,20 +126,6 @@ impl Blockchain {
 
         Ok(())
     }
-
-    pub fn find_fork(&self, other_chain_node: &Arc<BlockchainNode>) -> Option<Arc<BlockchainNode>> {
-        let mut current_node = Some(Arc::clone(other_chain_node));
-
-        while let Some(node) = current_node {
-            if self.contains_node(&node) {
-                return Some(node);
-            }
-
-            current_node = node.previous.clone();
-        }
-
-        None
-    }
 }
 
 #[cfg(test)]
@@ -224,7 +167,7 @@ mod tests {
 
         let block_d = test_block(4, Some(&block_c), vec![]);
         let block_e = test_block(5, Some(&block_d), vec![]);
-        let chain_b = Blockchain::build(vec![
+        let mut chain_b = Blockchain::build(vec![
             block_a.clone(),
             block_b.clone(),
             block_c.clone(),
@@ -236,18 +179,16 @@ mod tests {
         assert_eq!(chain_b.height(), 5);
         assert!(chain_b.contains_block(&block_d));
         assert!(chain_b.contains_block(&block_e));
+        assert!(chain_b.chain_work().unwrap() > chain_a.chain_work().unwrap());
 
-        let tail_b_node = chain_b.tail().unwrap();
-        let fork = chain_a.find_fork(&tail_b_node).unwrap();
+        let tail_node_a = chain_a.tail().unwrap();
+        chain_b.set_tail(tail_node_a).unwrap();
 
-        assert_eq!(fork.height, 3);
-
-        let mut chain_c = chain_a.clone();
-        chain_c.append_block(&block_d).unwrap();
-        assert_eq!(chain_c.height(), 4);
-
-        let chain_b_work = chain_a.chain_work().unwrap();
-        let chain_c_work = chain_c.chain_work().unwrap();
-        assert!(chain_c_work > chain_b_work);
+        assert_eq!(chain_b.height(), 3);
+        assert_eq!(chain_b.nodes.len(), 3);
+        assert!(chain_b.contains_block(&block_a));
+        assert!(chain_b.contains_block(&block_b));
+        assert!(chain_b.contains_block(&block_c));
+        assert_eq!(chain_b.chain_work().unwrap(), chain_a.chain_work().unwrap());
     }
 }
