@@ -53,26 +53,6 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub fn build(mut blocks: Vec<Block>) -> Result<Self> {
-        blocks.sort_by_key(|b| b.height);
-
-        let mut nodes = BTreeMap::new();
-
-        for block in blocks {
-            let mut node = BlockchainNode::new(&block);
-
-            let previous = (block.height > 0)
-                .then(|| nodes.get(&(block.height - 1)).map(Arc::clone))
-                .flatten();
-
-            node.set_previous(previous)?;
-
-            nodes.insert(block.height, Arc::new(node));
-        }
-
-        Ok(Self { nodes })
-    }
-
     pub fn is_empty(&self) -> bool {
         self.tail().is_none()
     }
@@ -152,13 +132,33 @@ mod tests {
         }
     }
 
+    fn build_from_blocks(mut blocks: Vec<Block>) -> Result<Blockchain> {
+        blocks.sort_by_key(|b| b.height);
+
+        let mut nodes = BTreeMap::new();
+
+        for block in blocks {
+            let mut node = BlockchainNode::new(&block);
+
+            let previous = (block.height > 0)
+                .then(|| nodes.get(&(block.height - 1)).map(Arc::clone))
+                .flatten();
+
+            node.set_previous(previous)?;
+
+            nodes.insert(block.height, Arc::new(node));
+        }
+
+        Ok(Blockchain { nodes })
+    }
+
     #[test]
     fn test_build_blockchain() {
         let block_a = test_block(1, None, vec![]);
         let block_b = test_block(2, Some(&block_a), vec![]);
         let block_c = test_block(3, Some(&block_b), vec![]);
         let chain_a =
-            Blockchain::build(vec![block_a.clone(), block_b.clone(), block_c.clone()]).unwrap();
+            build_from_blocks(vec![block_a.clone(), block_b.clone(), block_c.clone()]).unwrap();
 
         assert_eq!(chain_a.height(), 3);
         assert!(chain_a.contains_block(&block_a));
@@ -167,7 +167,7 @@ mod tests {
 
         let block_d = test_block(4, Some(&block_c), vec![]);
         let block_e = test_block(5, Some(&block_d), vec![]);
-        let mut chain_b = Blockchain::build(vec![
+        let mut chain_b = build_from_blocks(vec![
             block_a.clone(),
             block_b.clone(),
             block_c.clone(),
