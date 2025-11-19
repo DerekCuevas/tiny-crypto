@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_utxo_set() {
-        let mut uxto_set = UTXOSet::default();
+        let mut utxo_set = UTXOSet::default();
 
         let keypair_bob = KeyPair::generate();
         let address_bob = Address::from_public_key(&keypair_bob.public_key);
@@ -89,10 +89,10 @@ mod tests {
 
         let tx_a = tx_a_body.into_tx(&keypair_bob).unwrap();
 
-        uxto_set.update(&tx_a).unwrap();
+        utxo_set.update(&tx_a).unwrap();
 
         assert!(
-            uxto_set
+            utxo_set
                 .outputs
                 .contains_key(&tx_a.output_reference(0).unwrap())
         );
@@ -116,22 +116,22 @@ mod tests {
 
         let tx_b = tx_b_body.into_tx(&keypair_bob).unwrap();
 
-        uxto_set.update(&tx_b).unwrap();
+        utxo_set.update(&tx_b).unwrap();
 
         assert!(
-            !uxto_set
+            !utxo_set
                 .outputs
                 .contains_key(&tx_a.output_reference(0).unwrap())
         );
 
         assert!(
-            uxto_set
+            utxo_set
                 .outputs
                 .contains_key(&tx_b.output_reference(0).unwrap())
         );
 
         assert!(
-            uxto_set
+            utxo_set
                 .outputs
                 .contains_key(&tx_b.output_reference(1).unwrap())
         );

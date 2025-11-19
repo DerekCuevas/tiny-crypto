@@ -8,18 +8,18 @@ use anyhow::Result;
 pub struct NodeState {
     pub block_manager: BlockManager,
     pub chain: Blockchain,
-    pub uxto_set: UTXOSet,
+    pub utxo_set: UTXOSet,
     pub mem_pool: MemPool,
 }
 
 impl NodeState {
     pub fn build_uxto_set(&mut self) -> Result<()> {
-        self.uxto_set = UTXOSet::default();
+        self.utxo_set = UTXOSet::default();
 
         for node in self.chain.nodes.values() {
             if let Some(block) = self.block_manager.get_block(&node.header.hash()?) {
                 for tx in &block.transactions {
-                    self.uxto_set.update(tx)?;
+                    self.utxo_set.update(tx)?;
                 }
             }
         }
@@ -49,7 +49,7 @@ impl NodeState {
     }
 
     pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
-        self.mem_pool.add(&self.uxto_set, transaction)?;
+        self.mem_pool.add(&self.utxo_set, transaction)?;
         Ok(())
     }
 }
