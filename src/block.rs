@@ -7,6 +7,7 @@ use hex;
 use crate::{
     crypto::{Hash, KeyPair, sha256d},
     transaction::Transaction,
+    utxo_set::UTXOSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Default)]
@@ -194,6 +195,15 @@ impl Block {
         self.header.validate_hash()?;
         self.validate_merkle_root()?;
         self.validate_transactions()?;
+        Ok(())
+    }
+
+    pub fn validate_transaction_inputs(&self, utxo_set: &UTXOSet) -> Result<()> {
+        let mut pending_utxo_set = utxo_set.clone();
+        for tx in &self.transactions {
+            pending_utxo_set.validate_transaction(tx)?;
+            pending_utxo_set.update(tx)?;
+        }
         Ok(())
     }
 }

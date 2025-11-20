@@ -4,7 +4,11 @@ use anyhow::Result;
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 
-use crate::block::{Block, BlockHeader};
+use crate::{
+    block::{Block, BlockHeader},
+    block_manager::BlockManager,
+    utxo_set::UTXOSet,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockchainNode {
@@ -44,6 +48,12 @@ impl BlockchainNode {
         self.previous = previous;
         self.work = self.calculate_work()?;
         Ok(())
+    }
+
+    pub fn into_chain(node: Arc<BlockchainNode>) -> Result<Blockchain> {
+        let mut chain = Blockchain::default();
+        chain.set_tail(node)?;
+        Ok(chain)
     }
 }
 
@@ -105,6 +115,20 @@ impl Blockchain {
         }
 
         Ok(())
+    }
+
+    pub fn build_utxo_set(&self, block_manager: &BlockManager) -> Result<UTXOSet> {
+        let mut utxo_set = UTXOSet::default();
+
+        for node in self.nodes.values() {
+            if let Some(block) = block_manager.get_block(&node.header.hash()?) {
+                for tx in &block.transactions {
+                    utxo_set.update(tx)?;
+                }
+            }
+        }
+
+        Ok(utxo_set)
     }
 }
 

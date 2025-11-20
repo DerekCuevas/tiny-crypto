@@ -1,6 +1,13 @@
+use std::sync::Arc;
+
 use crate::{
-    block::Block, block_manager::BlockManager, chain::Blockchain, crypto::KeyPair,
-    mem_pool::MemPool, transaction::Transaction, utxo_set::UTXOSet,
+    block::Block,
+    block_manager::{AddBlockResult, BlockManager},
+    chain::{Blockchain, BlockchainNode},
+    crypto::KeyPair,
+    mem_pool::MemPool,
+    transaction::Transaction,
+    utxo_set::UTXOSet,
 };
 use anyhow::Result;
 
@@ -13,20 +20,6 @@ pub struct NodeState {
 }
 
 impl NodeState {
-    pub fn build_utxo_set(&mut self) -> Result<()> {
-        self.utxo_set = UTXOSet::default();
-
-        for node in self.chain.nodes.values() {
-            if let Some(block) = self.block_manager.get_block(&node.header.hash()?) {
-                for tx in &block.transactions {
-                    self.utxo_set.update(tx)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn add_block(&mut self, block: Block) -> Result<()> {
         let hash = block.header.hash()?;
 
@@ -36,13 +29,27 @@ impl NodeState {
 
         block.validate()?;
 
-        let Some(node) = self.block_manager.add_block(block)? else {
-            return Ok(());
+        let block = Arc::new(block);
+        let block_node = match self.block_manager.add_block(block.clone())? {
+            AddBlockResult::Added(node) => node,
+            AddBlockResult::Orphaned => {
+                return Ok(());
+            }
         };
 
-        if node.work >= self.chain.chain_work().unwrap_or_default() {
-            self.chain.set_tail(node)?;
-            self.build_utxo_set()?;
+        if let Some(previous_node) = block_node.previous.as_ref() {
+            let utxo_set = BlockchainNode::into_chain(previous_node.clone())?
+                .build_utxo_set(&self.block_manager)?;
+
+            if let Err(e) = block.validate_transaction_inputs(&utxo_set) {
+                self.block_manager.remove_block(&hash);
+                return Err(e);
+            }
+        }
+
+        if block_node.work >= self.chain.chain_work().unwrap_or_default() {
+            self.chain.set_tail(block_node)?;
+            self.utxo_set = self.chain.build_utxo_set(&self.block_manager)?;
         }
 
         Ok(())
@@ -79,10 +86,24 @@ impl Node {
         }
     }
 
-    pub fn into_block(&mut self, previous_block: &Block) -> Result<Block> {
+    pub fn create_block(&mut self) -> Result<Block> {
+        let tail_node = self
+            .state
+            .chain
+            .tail()
+            .ok_or(anyhow::anyhow!("Unable to mine block: no tail node"))?;
+
+        let previous_block = self
+            .state
+            .block_manager
+            .get_block(&tail_node.header.hash()?)
+            .ok_or(anyhow::anyhow!("Unable to mine block: no previous block"))?;
+
         let transactions = self.state.mem_pool.drain();
+
         let mut block = Block::new(&self.config.keypair, previous_block, transactions)?;
         block.mine()?;
+
         Ok(block)
     }
 
@@ -103,7 +124,7 @@ mod tests {
     use crate::transaction::*;
     use std::collections::HashSet;
 
-    fn test_block(
+    fn create_test_block(
         keypair: &KeyPair,
         difficulty: u8,
         previous: Option<&Block>,
@@ -147,7 +168,7 @@ mod tests {
             keypair: keypair_bob.clone(),
         });
 
-        let genesis_block = test_block(&keypair_bob, 2, None, vec![]).unwrap();
+        let genesis_block = create_test_block(&keypair_bob, 2, None, vec![]).unwrap();
         node.handle_message(Message::NewBlock(genesis_block.clone()))
             .unwrap();
 
@@ -198,7 +219,7 @@ mod tests {
             .unwrap();
 
         // create a new block with the pending transactions and add it to the chain
-        let block = node.into_block(&genesis_block).unwrap();
+        let block = node.create_block().unwrap();
         node.handle_message(Message::NewBlock(block)).unwrap();
 
         // verify pending transactions are flushed and added to a new latest block
@@ -231,21 +252,21 @@ mod tests {
             keypair: keypair.clone(),
         });
 
-        let block_a = test_block(&keypair, 2, None, vec![]).unwrap();
+        let block_a = create_test_block(&keypair, 2, None, vec![]).unwrap();
         node.handle_message(Message::NewBlock(block_a.clone()))
             .unwrap();
 
         assert_eq!(node.state.chain.height(), 1);
 
-        let block_b = test_block(&keypair, 2, Some(&block_a), vec![]).unwrap();
+        let block_b = create_test_block(&keypair, 2, Some(&block_a), vec![]).unwrap();
         node.handle_message(Message::NewBlock(block_b.clone()))
             .unwrap();
 
         assert_eq!(node.state.chain.height(), 2);
 
         // add a block that is not the next in the chain, should be orphaned
-        let block_c = test_block(&keypair, 2, Some(&block_b), vec![]).unwrap();
-        let block_d = test_block(&keypair, 2, Some(&block_c), vec![]).unwrap();
+        let block_c = create_test_block(&keypair, 2, Some(&block_b), vec![]).unwrap();
+        let block_d = create_test_block(&keypair, 2, Some(&block_c), vec![]).unwrap();
 
         assert_eq!(node.state.block_manager.orphan_blocks.len(), 0);
 

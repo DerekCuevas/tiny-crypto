@@ -5,28 +5,34 @@ use crate::{block::Block, chain::BlockchainNode, crypto::Hash};
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockManager {
-    pub block_index: HashMap<Hash, Block>,
-    pub node_index: HashMap<Hash, Arc<BlockchainNode>>,
-    pub orphan_blocks: HashMap<Hash, Block>,
+    pub blocks: HashMap<Hash, Arc<Block>>,
+    pub nodes: HashMap<Hash, Arc<BlockchainNode>>,
+    pub orphan_blocks: HashMap<Hash, Arc<Block>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum AddBlockResult {
+    Added(Arc<BlockchainNode>),
+    Orphaned,
 }
 
 impl BlockManager {
     pub fn get_block(&self, hash: &Hash) -> Option<&Block> {
-        self.block_index.get(hash)
+        self.blocks.get(hash).map(Arc::as_ref)
     }
 
     pub fn contains_block(&self, hash: &Hash) -> bool {
-        self.block_index.contains_key(hash)
+        self.blocks.contains_key(hash)
     }
 
-    pub fn add_block(&mut self, block: Block) -> Result<Option<Arc<BlockchainNode>>> {
+    pub fn add_block(&mut self, block: Arc<Block>) -> Result<AddBlockResult> {
         let hash = block.header.hash()?;
 
-        let previous_node = self.node_index.get(&block.header.previous_block_hash);
+        let previous_node = self.nodes.get(&block.header.previous_block_hash);
 
         if previous_node.is_none() && block.height > 1 {
             self.orphan_blocks.insert(hash, block);
-            return Ok(None);
+            return Ok(AddBlockResult::Orphaned);
         }
 
         let mut node = BlockchainNode::new(&block);
@@ -34,9 +40,15 @@ impl BlockManager {
 
         let node_ref = Arc::new(node);
 
-        self.node_index.insert(hash, node_ref.clone());
-        self.block_index.insert(hash, block);
+        self.nodes.insert(hash, node_ref.clone());
+        self.blocks.insert(hash, block);
 
-        Ok(Some(node_ref))
+        Ok(AddBlockResult::Added(node_ref))
+    }
+
+    pub fn remove_block(&mut self, hash: &Hash) {
+        self.blocks.remove(hash);
+        self.nodes.remove(hash);
+        self.orphan_blocks.remove(hash);
     }
 }
