@@ -56,6 +56,7 @@ impl NodeState {
     }
 
     pub fn add_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        transaction.validate()?;
         self.mem_pool.add(&self.utxo_set, transaction)?;
         Ok(())
     }

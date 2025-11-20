@@ -153,6 +153,11 @@ impl Transaction {
 
         Ok(MerkleTree::from_leaves(leaves))
     }
+
+    pub fn validate(&self) -> Result<()> {
+        self.verify_signature()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
