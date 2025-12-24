@@ -44,7 +44,7 @@ impl SignatureExt for Signature {
         let secp = Secp256k1::verification_only();
         let digest = sha256d(bytes);
         let message = Message::from_digest(digest);
-        secp.verify_ecdsa(message, &self, &public_key).is_ok()
+        secp.verify_ecdsa(message, self, public_key).is_ok()
     }
 }
 
@@ -75,7 +75,7 @@ struct Sha256dHasher {}
 impl rs_merkle::Hasher for Sha256dHasher {
     type Hash = [u8; 32];
     fn hash(data: &[u8]) -> Self::Hash {
-        sha256d(data).into()
+        sha256d(data)
     }
 }
 

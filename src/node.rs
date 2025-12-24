@@ -179,7 +179,7 @@ mod tests {
         let keypair_alice = KeyPair::generate();
         let address_alice = Address::from_public_key(&keypair_alice.public_key);
 
-        let coinbase_tx = genesis_block.transactions.get(0).unwrap();
+        let coinbase_tx = genesis_block.transactions.first().unwrap();
 
         let tx_a_body = TransactionBody {
             input: TransactionInput::Reference(coinbase_tx.output_reference(0).unwrap()),

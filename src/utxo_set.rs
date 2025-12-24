@@ -17,7 +17,7 @@ impl UTXOSet {
         let TransactionBody { input, outputs } = &transaction.body;
 
         if let TransactionInput::Reference(reference) = input {
-            let removed = self.outputs.remove(&reference);
+            let removed = self.outputs.remove(reference);
             if removed.is_none() {
                 return Err(anyhow::anyhow!("Transaction output reference not found"));
             }

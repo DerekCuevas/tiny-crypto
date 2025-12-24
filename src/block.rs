@@ -160,9 +160,7 @@ impl Block {
 
         if block_reward != expected_block_reward {
             return Err(anyhow::anyhow!(
-                "Block reward for coinbase transaction does not match expected block reward: {} != {}",
-                block_reward,
-                expected_block_reward
+                "Block reward for coinbase transaction does not match expected block reward: {block_reward} != {expected_block_reward}"
             ));
         }
 
@@ -264,7 +262,7 @@ mod tests {
         };
 
         let nonce = header.compute_nonce_naive().unwrap();
-        println!("Found Nonce: {}", nonce);
+        println!("Found Nonce: {nonce}");
         header.nonce = nonce;
 
         let hash = header.hash().unwrap();

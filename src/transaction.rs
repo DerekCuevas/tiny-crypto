@@ -24,7 +24,7 @@ impl std::fmt::Display for TxId {
 
 impl std::fmt::Debug for TxId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TxId({})", self.to_string())
+        write!(f, "TxId({self})")
     }
 }
 
@@ -84,7 +84,7 @@ pub struct SigningInfo {
 impl SigningInfo {
     pub fn sign(keypair: &KeyPair, bytes: &[u8]) -> Self {
         Self {
-            signature: keypair.sign(&bytes),
+            signature: keypair.sign(bytes),
             public_key: keypair.public_key,
         }
     }
@@ -140,10 +140,10 @@ impl Transaction {
             }],
         };
 
-        body.into_tx(&keypair)
+        body.into_tx(keypair)
     }
 
-    pub fn build_merkle_tree(transactions: &Vec<Self>) -> Result<MerkleTree> {
+    pub fn build_merkle_tree(transactions: &[Self]) -> Result<MerkleTree> {
         let tx_ids = transactions
             .iter()
             .map(|tx| tx.id())

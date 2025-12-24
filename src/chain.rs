@@ -83,7 +83,7 @@ impl Blockchain {
     }
 
     pub fn get_node(&self, height: u32) -> Option<Arc<BlockchainNode>> {
-        self.nodes.get(&height).map(|node| node.clone())
+        self.nodes.get(&height).cloned()
     }
 
     pub fn contains_node(&self, index: &Arc<BlockchainNode>) -> bool {

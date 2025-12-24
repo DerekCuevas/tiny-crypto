@@ -40,11 +40,11 @@ fn hash_string(input: &str, format: ByteDisplay) {
     let hash = Sha256::digest(input.as_bytes());
 
     match format {
-        ByteDisplay::Hex => println!("Hash (hex): {:#32x}", hash),
+        ByteDisplay::Hex => println!("Hash (hex): {hash:#32x}"),
         ByteDisplay::Base64 => {
             let bytes = hash.to_vec();
             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-            println!("Hash (base64): {}", encoded);
+            println!("Hash (base64): {encoded}");
         }
     }
 }
