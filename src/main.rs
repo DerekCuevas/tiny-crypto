@@ -1,8 +1,10 @@
+use anyhow::Result;
 use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 use sha2::{Digest, Sha256};
 use strum_macros::Display;
 use tiny_crypto::crypto::KeyPair;
+use tiny_crypto::p2p::{self, run_node};
 
 #[derive(Parser)]
 #[command(name = "tiny-crypto")]
@@ -34,6 +36,7 @@ enum Commands {
         format: ByteDisplay,
     },
     GenerateKeyPair,
+    StartNode(p2p::Args),
 }
 
 fn hash_string(input: &str, format: ByteDisplay) {
@@ -49,7 +52,8 @@ fn hash_string(input: &str, format: ByteDisplay) {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -61,5 +65,10 @@ fn main() {
             println!("Public Key: 0x{}", key_pair.public_key);
             println!("Secret Key: 0x{}", key_pair.secret_key.display_secret());
         }
+        Commands::StartNode(args) => {
+            run_node(args).await?;
+        }
     }
+
+    Ok(())
 }
