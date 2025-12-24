@@ -3,6 +3,7 @@ use std::{cmp::Ordering, collections::HashSet};
 use anyhow::Result;
 use bincode::Encode;
 use hex;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::{Hash, KeyPair, sha256d},
@@ -10,7 +11,7 @@ use crate::{
     utxo_set::UTXOSet,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Serialize, Deserialize, Default)]
 pub struct BlockHeader {
     pub previous_block_hash: Hash,
     pub merkle_root: Hash,
@@ -61,7 +62,7 @@ impl BlockHeader {
             header.nonce += 1;
 
             if header.nonce % 1_000_000 == 0 {
-                println!("Nonce: {}, Hash: 0x{}", header.nonce, hex::encode(hash));
+                println!("Nonce: {}, Hash: 0x{}", header.nonce, hex::encode(hash.0));
             }
         }
 
@@ -76,7 +77,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub height: u32,
     pub header: BlockHeader,
@@ -217,8 +218,8 @@ mod tests {
     #[test]
     fn test_block_header() {
         let header = BlockHeader {
-            previous_block_hash: [2; 32],
-            merkle_root: [3; 32],
+            previous_block_hash: Hash([2; 32]),
+            merkle_root: Hash([3; 32]),
             timestamp: 4,
             difficulty: 1,
             nonce: 0,
@@ -234,8 +235,8 @@ mod tests {
     #[test]
     fn test_difficulty_target() {
         let header = BlockHeader {
-            previous_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            previous_block_hash: Hash([0; 32]),
+            merkle_root: Hash([0; 32]),
             timestamp: 0,
             difficulty: 2,
             nonce: 0,
@@ -243,21 +244,21 @@ mod tests {
 
         let target = header.difficulty_target().unwrap();
 
-        let expected = [
+        let expected = Hash([
             0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
-        ];
+        ]);
 
         assert_eq!(target, expected);
-        println!("Difficulty target: 0x{}", hex::encode(target));
+        println!("Difficulty target: 0x{}", hex::encode(target.0));
     }
 
     #[test]
     fn test_compute_nonce() {
         let mut header = BlockHeader {
-            previous_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            previous_block_hash: Hash([0; 32]),
+            merkle_root: Hash([0; 32]),
             timestamp: 1760850297,
             difficulty: 1,
             nonce: 0,
@@ -291,7 +292,7 @@ mod tests {
 
         println!(
             "Genesis block hash: 0x{}",
-            hex::encode(genesis_block.header.hash().unwrap())
+            hex::encode(genesis_block.header.hash().unwrap().0)
         );
 
         let keypair_alice = KeyPair::generate();
@@ -312,7 +313,7 @@ mod tests {
         block.mine().unwrap();
         println!(
             "Block hash: 0x{}",
-            hex::encode(block.header.hash().unwrap())
+            hex::encode(block.header.hash().unwrap().0)
         );
     }
 }

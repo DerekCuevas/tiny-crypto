@@ -30,7 +30,7 @@ impl BlockchainNode {
 
     fn calculate_work(&self) -> Result<BigUint> {
         let target_bytes = self.header.difficulty_target()?;
-        let target = BigUint::from_bytes_be(&target_bytes);
+        let target = BigUint::from_bytes_be(target_bytes.as_ref());
 
         let max_target = (BigUint::from(2u32).pow(256u32)) - BigUint::one();
         let block_work = ((&max_target - &target) / (&target + BigUint::one())) + BigUint::one();

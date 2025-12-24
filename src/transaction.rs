@@ -1,18 +1,20 @@
 use anyhow::Result;
 use bincode::Encode;
 use secp256k1::{PublicKey, ecdsa::Signature};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     constants::{BLOCKS_PER_REWARD_HALVING, GENESIS_BLOCK_REWARD},
     crypto::{Address, Hash, KeyPair, MerkleTree, SignatureExt, sha256d},
 };
 
-#[derive(Clone, Hash, Eq, PartialEq, Encode)]
+#[derive(Clone, Hash, Eq, PartialEq, Encode, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct TxId(pub Hash);
 
 impl TxId {
     pub fn empty() -> Self {
-        Self([0; 32])
+        Self(Hash([0; 32]))
     }
 }
 
@@ -28,19 +30,19 @@ impl std::fmt::Debug for TxId {
     }
 }
 
-#[derive(Debug, Clone, Encode)]
+#[derive(Debug, Clone, Encode, Serialize, Deserialize)]
 pub struct TransactionOutput {
     pub value: u64,
     pub address: Address,
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Encode)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Encode, Serialize, Deserialize)]
 pub struct TransactionOutputReference {
     pub id: TxId,
     pub index: usize,
 }
 
-#[derive(Debug, Clone, Encode)]
+#[derive(Debug, Clone, Encode, Serialize, Deserialize)]
 pub enum TransactionInput {
     Coinbase { block_height: u32 },
     Reference(TransactionOutputReference),
@@ -52,7 +54,7 @@ impl TransactionInput {
     }
 }
 
-#[derive(Debug, Clone, Encode)]
+#[derive(Debug, Clone, Encode, Serialize, Deserialize)]
 pub struct TransactionBody {
     pub input: TransactionInput,
     pub outputs: Vec<TransactionOutput>,
@@ -75,10 +77,56 @@ impl TransactionBody {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SigningInfo {
+    #[serde(
+        serialize_with = "serialize_signature",
+        deserialize_with = "deserialize_signature"
+    )]
     pub signature: Signature,
+    #[serde(
+        serialize_with = "serialize_public_key",
+        deserialize_with = "deserialize_public_key"
+    )]
     pub public_key: PublicKey,
+}
+
+fn serialize_signature<S>(sig: &Signature, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let bytes = sig.serialize_compact();
+    serializer.serialize_str(&hex::encode(bytes))
+}
+
+fn deserialize_signature<'de, D>(deserializer: D) -> Result<Signature, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let s = String::deserialize(deserializer)?;
+    let bytes = hex::decode(&s)
+        .map_err(|e| Error::custom(format!("Invalid hex string for signature: {}", e)))?;
+    Signature::from_compact(&bytes).map_err(|e| Error::custom(format!("Invalid signature: {}", e)))
+}
+
+fn serialize_public_key<S>(pk: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let bytes = pk.serialize();
+    serializer.serialize_str(&hex::encode(bytes))
+}
+
+fn deserialize_public_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let s = String::deserialize(deserializer)?;
+    let bytes = hex::decode(&s)
+        .map_err(|e| Error::custom(format!("Invalid hex string for public key: {}", e)))?;
+    PublicKey::from_slice(&bytes).map_err(|e| Error::custom(format!("Invalid public key: {}", e)))
 }
 
 impl SigningInfo {
@@ -98,7 +146,7 @@ impl SigningInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub body: TransactionBody,
     pub signing_info: SigningInfo,
