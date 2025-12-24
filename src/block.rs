@@ -60,7 +60,7 @@ impl BlockHeader {
 
             header.nonce += 1;
 
-            if header.nonce % 1_000_000 == 0 {
+            if header.nonce.is_multiple_of(1_000_000) {
                 println!("Nonce: {}, Hash: 0x{}", header.nonce, hex::encode(hash));
             }
         }
